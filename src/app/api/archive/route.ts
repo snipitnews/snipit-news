@@ -57,10 +57,11 @@ export async function GET(request: NextRequest) {
     );
 
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-    if (!session) {
+    if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -71,7 +72,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await getSupabaseAdmin()
       .from('email_archive')
       .select('*')
-      .eq('user_id', session.user.id)
+      .eq('user_id', user.id)
       .order('sent_at', { ascending: false })
       .range(offset, offset + limit - 1);
 

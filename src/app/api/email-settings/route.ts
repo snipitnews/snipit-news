@@ -4,10 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 
 export async function GET(request: NextRequest) {
   try {
-    // Create a response object for setting cookies
-    let response = NextResponse.next();
-    
-    // Create a server client with cookie handling
+    // Create a server client with cookie handling (simplified for read-only operations)
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -16,69 +13,52 @@ export async function GET(request: NextRequest) {
           get(name: string) {
             return request.cookies.get(name)?.value;
           },
-          set(name: string, value: string, options: any) {
-            request.cookies.set({
-              name,
-              value,
-              ...options,
-            });
-            response = NextResponse.next({
-              request: {
-                headers: request.headers,
-              },
-            });
-            response.cookies.set({
-              name,
-              value,
-              ...options,
-            });
+          set() {
+            // No-op for read-only operations
           },
-          remove(name: string, options: any) {
-            request.cookies.set({
-              name,
-              value: '',
-              ...options,
-            });
-            response = NextResponse.next({
-              request: {
-                headers: request.headers,
-              },
-            });
-            response.cookies.set({
-              name,
-              value: '',
-              ...options,
-            });
+          remove() {
+            // No-op for read-only operations
           },
         },
       }
     );
 
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-    if (!session) {
+    if (authError) {
+      console.error('Auth error in email-settings GET:', authError);
+      return NextResponse.json({ error: 'Unauthorized', details: authError.message }, { status: 401 });
+    }
+
+    if (!user) {
+      console.error('No user found in email-settings GET');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    console.log('Fetching email settings for user:', user.id);
 
     const { data, error } = await getSupabaseAdmin()
       .from('user_email_settings')
       .select('*')
-      .eq('user_id', session.user.id)
+      .eq('user_id', user.id)
       .single();
 
     if (error && error.code !== 'PGRST116') {
       // PGRST116 is "not found" - we'll create default settings
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error('Error fetching email settings:', error);
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 500 });
     }
 
     // If no settings exist, create default ones
     if (!data) {
+      console.log('No email settings found, creating default settings for user:', user.id);
       const { data: newSettings, error: createError } = await getSupabaseAdmin()
         .from('user_email_settings')
         .insert({
-          user_id: session.user.id,
+          user_id: user.id,
           delivery_time: '08:00:00-05:00',
           timezone: 'America/New_York',
           paused: false,
@@ -87,8 +67,9 @@ export async function GET(request: NextRequest) {
         .single();
 
       if (createError) {
+        console.error('Error creating email settings:', createError);
         return NextResponse.json(
-          { error: createError.message },
+          { error: createError.message, code: createError.code },
           { status: 500 }
         );
       }
@@ -98,9 +79,11 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ settings: data });
   } catch (error) {
-    console.error('Error fetching email settings:', error);
+    console.error('Error fetching email settings (catch block):', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: errorMessage, stack: errorStack },
       { status: 500 }
     );
   }
@@ -108,10 +91,7 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    // Create a response object for setting cookies
-    let response = NextResponse.next();
-    
-    // Create a server client with cookie handling
+    // Create a server client with cookie handling (simplified for read-only auth)
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -120,49 +100,22 @@ export async function PUT(request: NextRequest) {
           get(name: string) {
             return request.cookies.get(name)?.value;
           },
-          set(name: string, value: string, options: any) {
-            request.cookies.set({
-              name,
-              value,
-              ...options,
-            });
-            response = NextResponse.next({
-              request: {
-                headers: request.headers,
-              },
-            });
-            response.cookies.set({
-              name,
-              value,
-              ...options,
-            });
+          set() {
+            // No-op for read-only auth operations
           },
-          remove(name: string, options: any) {
-            request.cookies.set({
-              name,
-              value: '',
-              ...options,
-            });
-            response = NextResponse.next({
-              request: {
-                headers: request.headers,
-              },
-            });
-            response.cookies.set({
-              name,
-              value: '',
-              ...options,
-            });
+          remove() {
+            // No-op for read-only auth operations
           },
         },
       }
     );
 
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-    if (!session) {
+    if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -182,7 +135,7 @@ export async function PUT(request: NextRequest) {
       .from('user_email_settings')
       .upsert(
         {
-          user_id: session.user.id,
+          user_id: user.id,
           delivery_time: delivery_time || '08:00:00-05:00',
           timezone: timezone || 'America/New_York',
           paused: paused !== undefined ? paused : false,

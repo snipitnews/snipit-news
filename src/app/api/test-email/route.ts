@@ -57,12 +57,13 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    // Get the current user from the session
+    // Get the current user (authenticated via getUser)
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-    if (!session) {
+    if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
     const { data: userData, error: userError } = await getSupabaseAdmin()
       .from('users')
       .select('*')
-      .eq('id', session.user.id)
+      .eq('id', user.id)
       .single();
 
     if (userError || !userData) {
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
     const { data: topicsData, error: topicsError } = await getSupabaseAdmin()
       .from('user_topics')
       .select('topic_name')
-      .eq('user_id', session.user.id);
+      .eq('user_id', user.id);
 
     if (topicsError || !topicsData || topicsData.length === 0) {
       return NextResponse.json(
@@ -94,26 +95,48 @@ export async function POST(request: NextRequest) {
     }
 
     const topics = topicsData.map((t) => t.topic_name);
-    console.log(`Testing email for user ${userData.email} with topics: ${topics.join(', ')}`);
+    console.log(`[Test Email] Testing for user ${userData.email} with topics: ${topics.join(', ')}`);
 
     // Fetch news for all topics
+    console.log(`[Test Email] Fetching news for ${topics.length} topics...`);
     const newsData = await fetchNewsForMultipleTopics(topics);
+    
+    // Log article counts
+    Object.entries(newsData).forEach(([topic, articles]) => {
+      console.log(`[Test Email] Found ${articles.length} articles for topic: ${topic}`);
+    });
 
     // Generate summaries for each topic
+    console.log(`[Test Email] Generating summaries...`);
     const summaries = [];
-    for (const topic of topics) {
+    for (let i = 0; i < topics.length; i++) {
+      const topic = topics[i];
       const articles = newsData[topic] || [];
+      
       if (articles.length > 0) {
-        const summary = await summarizeNews(
-          topic,
-          articles,
-          userData.subscription_tier === 'paid'
-        );
-        if (summary.summaries.length > 0) {
-          summaries.push(summary);
+        console.log(`[Test Email] Summarizing topic ${i + 1}/${topics.length}: ${topic} (${articles.length} articles)`);
+        try {
+          const summary = await summarizeNews(
+            topic,
+            articles,
+            userData.subscription_tier === 'paid'
+          );
+          if (summary.summaries.length > 0) {
+            summaries.push(summary);
+            console.log(`[Test Email] ✅ Generated ${summary.summaries.length} summaries for ${topic}`);
+          } else {
+            console.log(`[Test Email] ⚠️ No summaries generated for ${topic}`);
+          }
+        } catch (error) {
+          console.error(`[Test Email] ❌ Error summarizing ${topic}:`, error);
+          // Continue with other topics even if one fails
         }
+      } else {
+        console.log(`[Test Email] ⚠️ No articles found for topic: ${topic}`);
       }
     }
+    
+    console.log(`[Test Email] Generated summaries for ${summaries.length}/${topics.length} topics`);
 
     if (summaries.length === 0) {
       return NextResponse.json(
@@ -126,6 +149,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Send email digest
+    console.log(`[Test Email] Sending email to ${userData.email}...`);
     const emailSent = await sendNewsDigest(
       userData.email,
       summaries,
@@ -143,10 +167,13 @@ export async function POST(request: NextRequest) {
             content: summaries as unknown,
             topics: topics,
           } as never);
+        console.log(`[Test Email] ✅ Email archived successfully`);
       } catch (archiveError) {
-        console.error('Failed to archive email:', archiveError);
+        console.error('[Test Email] ⚠️ Failed to archive email:', archiveError);
+        // Don't fail the request if archiving fails
       }
 
+      console.log(`[Test Email] ✅ Test email sent successfully!`);
       return NextResponse.json({
         success: true,
         message: `Test email sent successfully to ${userData.email}!`,
@@ -154,6 +181,7 @@ export async function POST(request: NextRequest) {
         summariesCount: summaries.length,
       });
     } else {
+      console.error(`[Test Email] ❌ Failed to send email`);
       return NextResponse.json(
         {
           error: 'Failed to send email',

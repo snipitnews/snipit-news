@@ -3,6 +3,18 @@ import { stripe } from '@/lib/stripe';
 import { getSupabaseAdmin } from '@/lib/supabase';
 
 export async function POST(request: NextRequest) {
+  // Pro plan is coming soon - return a message instead of processing checkout
+  return NextResponse.json(
+    { 
+      error: 'Pro plan is coming soon! Stay tuned for updates.',
+      comingSoon: true 
+    },
+    { status: 503 }
+  );
+}
+
+/* Disabled until Pro plan is ready
+export async function POST_OLD(request: NextRequest) {
   try {
     const { userId, email } = await request.json();
 
@@ -90,4 +102,5 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+  */
 }

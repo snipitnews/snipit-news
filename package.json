@@ -7,7 +7,7 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
-    "test-setup": "node test-setup.js"
+    "test-setup": "node scripts/test-setup.js"
   },
   "dependencies": {
     "@react-email/render": "^1.4.0",

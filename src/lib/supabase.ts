@@ -57,6 +57,7 @@ export type Database = {
           email: string;
           subscription_tier: 'free' | 'paid';
           stripe_customer_id: string | null;
+          role: 'user' | 'admin';
           created_at: string;
         };
         Insert: {
@@ -64,6 +65,7 @@ export type Database = {
           email: string;
           subscription_tier?: 'free' | 'paid';
           stripe_customer_id?: string | null;
+          role?: 'user' | 'admin';
           created_at?: string;
         };
         Update: {
@@ -71,6 +73,7 @@ export type Database = {
           email?: string;
           subscription_tier?: 'free' | 'paid';
           stripe_customer_id?: string | null;
+          role?: 'user' | 'admin';
           created_at?: string;
         };
       };

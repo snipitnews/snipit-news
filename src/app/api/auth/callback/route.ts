@@ -1,127 +1,115 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
-import { getSupabaseAdmin } from '@/lib/supabase';
+import { cookies } from 'next/headers';
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
+  const token = searchParams.get('token');
+  const type = searchParams.get('type');
   const error = searchParams.get('error');
   const errorDescription = searchParams.get('error_description');
   const next = searchParams.get('next') ?? '/dashboard';
 
+  // Debug logging
+  console.log('🔍 API Auth Callback - Request received:');
+  console.log('  URL:', request.url);
+  console.log('  Code:', code ? `${code.substring(0, 20)}...` : 'none');
+  console.log('  Token:', token ? `${token.substring(0, 20)}...` : 'none');
+  console.log('  Type:', type || 'none');
+  console.log('  Error:', error || 'none');
+  console.log('  All params:', Object.fromEntries(searchParams.entries()));
+
   // Handle error cases from Supabase
   if (error) {
-    console.error('Auth error from Supabase:', error, errorDescription);
+    console.error('❌ Auth error from Supabase:', error, errorDescription);
     return NextResponse.redirect(
       `${origin}/auth/auth-code-error?error=${encodeURIComponent(error)}&error_description=${encodeURIComponent(errorDescription || '')}`
     );
   }
 
   // Handle successful authentication
-  if (code) {
-    const response = NextResponse.redirect(new URL(next, origin));
-    
+  if (code || token) {
     try {
-      // Create a server client with cookie handling
-      // Read cookies from the request (not from cookies() helper)
+      // Create Supabase client for server-side operations
+      const cookieStore = await cookies();
       const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
           cookies: {
-            get(name: string) {
-              return request.cookies.get(name)?.value;
+            getAll() {
+              return cookieStore.getAll();
             },
-            set(name: string, value: string, options: any) {
-              request.cookies.set({
-                name,
-                value,
-                ...options,
-              });
-              response.cookies.set({
-                name,
-                value,
-                ...options,
-              });
-            },
-            remove(name: string, options: any) {
-              request.cookies.set({
-                name,
-                value: '',
-                ...options,
-              });
-              response.cookies.set({
-                name,
-                value: '',
-                ...options,
-              });
+            setAll(cookiesToSet) {
+              try {
+                cookiesToSet.forEach(({ name, value, options }) =>
+                  cookieStore.set(name, value, options)
+                );
+              } catch {
+                // The `setAll` method was called from a Server Component.
+                // This can be ignored if you have middleware refreshing
+                // user sessions.
+              }
             },
           },
         }
       );
 
-      // For email OTP, exchange code for session
-      // Note: Email OTP doesn't use PKCE, so we exchange directly
-      const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+      // For email OTP with token parameter, verify on server side
+      if (token) {
+        console.log('🔐 Token parameter detected - attempting server-side OTP verification');
+        const { data, error: verifyError } = await supabase.auth.verifyOtp({
+          token_hash: token,
+          type: (type as 'email' | 'magiclink') || 'magiclink',
+        });
 
-      if (exchangeError) {
-        console.error('Auth exchange error:', exchangeError);
-        // If PKCE error, try without code verifier (for email OTP)
-        if (exchangeError.message.includes('code verifier')) {
-          console.log('PKCE error detected, trying alternative method...');
-          // For email OTP, we might need to use a different approach
-          // Let's redirect to client-side callback which can handle it
+        if (verifyError) {
+          console.error('❌ OTP verification failed:', verifyError);
           return NextResponse.redirect(
-            `${origin}/auth/callback?code=${code}`
+            `${origin}/auth/auth-code-error?error=${encodeURIComponent(verifyError.message || 'otp_verification_failed')}`
           );
         }
-        return NextResponse.redirect(
-          `${origin}/auth/auth-code-error?error=${encodeURIComponent(exchangeError.message || 'authentication_failed')}`
-        );
+
+        if (data?.user && data?.session) {
+          console.log('✅ OTP verification successful on server side');
+          // Redirect to client-side callback to complete the flow
+          return NextResponse.redirect(`${origin}/auth/callback?success=true`);
+        }
       }
 
-      if (data?.user) {
-        console.log('User authenticated successfully:', data.user.id);
-        
-        // Ensure user record exists (backup in case trigger fails)
-        try {
-          await getSupabaseAdmin()
-            .from('users')
-            .upsert(
-              {
-                id: data.user.id,
-                email: data.user.email || '',
-                subscription_tier: 'free',
-              },
-              {
-                onConflict: 'id',
-              }
-            );
-          
-          // Ensure email settings exist
-          await getSupabaseAdmin()
-            .from('user_email_settings')
-            .upsert(
-              {
-                user_id: data.user.id,
-                delivery_time: '08:00:00-05:00',
-                timezone: 'America/New_York',
-                paused: false,
-              },
-              {
-                onConflict: 'user_id',
-              }
-            );
-        } catch (userError) {
-          console.error('Error ensuring user record exists:', userError);
-          // Continue anyway - user can still access the app
+      // For code parameter - try server-side exchange first (for PKCE flows)
+      // If that fails, redirect to client-side for OTP verification
+      if (code) {
+        console.log('🔐 Code parameter detected - attempting server-side exchange');
+        console.log('  Code length:', code.length);
+        console.log('  Code preview:', code.substring(0, 50));
+
+        // Try exchangeCodeForSession first (for PKCE/OAuth flows)
+        const { data: exchangeData, error: exchangeError } =
+          await supabase.auth.exchangeCodeForSession(code);
+
+        if (!exchangeError && exchangeData?.user && exchangeData?.session) {
+          console.log('✅ Code exchange successful on server side (PKCE/OAuth flow)');
+          // Redirect to client-side callback to complete the flow
+          return NextResponse.redirect(`${origin}/auth/callback?success=true`);
         }
-        
-        return response;
+
+        // If exchangeCodeForSession fails, this is likely an email OTP code
+        // Redirect to client-side callback for OTP verification
+        if (exchangeError) {
+          console.log('⚠️ Code exchange failed (likely email OTP):', exchangeError.message);
+          console.log('  Redirecting to client-side callback for OTP verification');
+          return NextResponse.redirect(
+            `${origin}/auth/callback?code=${encodeURIComponent(code)}${type ? `&type=${encodeURIComponent(type)}` : ''}`
+          );
+        }
       }
     } catch (error) {
-      console.error('Unexpected error during auth:', error);
+      console.error('❌ Unexpected error during auth processing:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      console.error('  Stack:', errorStack);
       return NextResponse.redirect(
         `${origin}/auth/auth-code-error?error=${encodeURIComponent(errorMessage)}`
       );
@@ -129,6 +117,7 @@ export async function GET(request: NextRequest) {
   }
 
   // No code and no error - invalid request
+  console.warn('⚠️ No code or token found in request');
   return NextResponse.redirect(
     `${origin}/auth/auth-code-error?error=${encodeURIComponent('missing_code')}`
   );

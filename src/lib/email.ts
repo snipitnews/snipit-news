@@ -3,18 +3,19 @@ import { NewsSummary } from './openai';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+
 export async function sendNewsDigest(
   email: string,
   summaries: NewsSummary[],
   isPaid: boolean = false
 ): Promise<boolean> {
   try {
-    const html = generateEmailHTML(summaries, isPaid);
+    const html = generateEmailHTML(email, summaries, isPaid);
 
     const { data, error } = await resend.emails.send({
       from: 'SnipIt <noreply@resend.dev>', // Using Resend's free domain
       to: [email],
-      subject: `Your SnipIt Daily Digest - ${new Date().toLocaleDateString()}`,
+      subject: `Your SnipIt Daily Digest - ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
       html,
     });
 
@@ -31,203 +32,310 @@ export async function sendNewsDigest(
   }
 }
 
-function generateEmailHTML(summaries: NewsSummary[], isPaid: boolean): string {
-  const formatClass = isPaid ? 'paragraph' : 'bullet';
+function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: boolean): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://snipit.news';
 
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta content="text/html; charset=UTF-8" http-equiv="Content-Type">
+    <meta name="x-apple-disable-message-reformatting">
     <title>Your SnipIt Daily Digest</title>
+    <link rel="preload" href="https://res.cloudinary.com/dgqg2myag/image/upload/v1748666252/logo-white_gp5iuq.png">
+    <link rel="preload" href="https://res.cloudinary.com/dgqg2myag/image/upload/v1748662022/snipit-logo_vzcwe5.png">
+    <link rel="preload" href="https://res.cloudinary.com/dgqg2myag/image/upload/v1748662914/snipit-logo-black_fttbsx.png">
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f8f9fa;
+      @font-face {
+        font-family: 'Roboto';
+        font-style: normal;
+        font-weight: 400;
+        mso-font-alt: 'sans-serif';
+        src: url(https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap) format('woff2');
+      }
+      @font-face {
+        font-family: 'Raleway';
+        font-style: normal;
+        font-weight: 400;
+        mso-font-alt: 'sans-serif';
+        src: url(https://fonts.googleapis.com/css2?family=Raleway:wght@400;700&display=swap) format('woff2');
+      }
+      * {
+        font-family: 'Roboto', 'Raleway', sans-serif;
+      }
+      /* Desktop styles - spread across full width */
+      @media only screen and (min-width: 601px) {
+        .container {
+          max-width: 100% !important;
+          width: 100% !important;
         }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-            border-radius: 10px 10px 0 0;
-            margin-bottom: 0;
+        .content-wrapper {
+          max-width: 1200px;
+          margin: 0 auto;
+          width: 100%;
         }
-        .header h1 {
-            margin: 0;
-            font-size: 28px;
-            font-weight: 700;
+      }
+      /* Responsive styles */
+      @media only screen and (max-width: 600px) {
+        .container {
+          width: 100% !important;
+          max-width: 100% !important;
         }
-        .header p {
-            margin: 10px 0 0 0;
-            opacity: 0.9;
-            font-size: 16px;
+        .header-padding {
+          padding-left: 20px !important;
+          padding-right: 20px !important;
         }
-        .content {
-            background: white;
-            padding: 30px;
-            border-radius: 0 0 10px 10px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        .content-padding {
+          padding-left: 20px !important;
+          padding-right: 20px !important;
         }
-        .topic-section {
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #e9ecef;
+        .topic-padding {
+          padding-left: 20px !important;
+          padding-right: 20px !important;
+          padding-top: 30px !important;
+          padding-bottom: 30px !important;
+          margin-bottom: 24px !important;
         }
-        .topic-section:last-child {
-            border-bottom: none;
-            margin-bottom: 0;
+        .header-height {
+          height: auto !important;
+          min-height: 80px !important;
+          padding-top: 16px !important;
+          padding-bottom: 16px !important;
         }
-        .topic-title {
-            font-size: 20px;
-            font-weight: 600;
-            color: #495057;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
+        .title-size {
+          font-size: 32px !important;
         }
-        .topic-icon {
-            width: 20px;
-            height: 20px;
-            margin-right: 10px;
-            background: #667eea;
-            border-radius: 50%;
+        .subtitle-size {
+          font-size: 16px !important;
         }
-        .summary-item {
-            margin-bottom: 15px;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            border-left: 4px solid #667eea;
+        .topic-title-size {
+          font-size: 28px !important;
         }
-        .summary-item:last-child {
-            margin-bottom: 0;
+        .article-title-size {
+          font-size: 18px !important;
         }
-        .article-title {
-            font-size: 16px;
-            font-weight: 600;
-            color: #212529;
-            margin-bottom: 8px;
+        .logo-size {
+          height: 35px !important;
         }
-        .article-title a {
-            color: #667eea;
-            text-decoration: none;
+        .bullet-logo-size {
+          height: 22px !important;
         }
-        .article-title a:hover {
-            text-decoration: underline;
+        .header-logo {
+          width: 100% !important;
+          text-align: left !important;
         }
-        .article-summary {
-            font-size: 14px;
-            color: #6c757d;
-            margin-bottom: 8px;
+        .header-text {
+          width: 100% !important;
+          text-align: left !important;
+          margin-top: 10px !important;
         }
-        .article-meta {
-            font-size: 12px;
-            color: #adb5bd;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+        .news-update {
+          font-size: 18px !important;
         }
-        .article-source {
-            font-weight: 500;
-        }
-        .bullet-list {
-            margin: 0;
-            padding-left: 20px;
-        }
-        .bullet-list li {
-            margin-bottom: 8px;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #e9ecef;
-            color: #6c757d;
-            font-size: 14px;
-        }
-        .footer a {
-            color: #667eea;
-            text-decoration: none;
-        }
-        .tier-badge {
-            display: inline-block;
-            background: ${isPaid ? '#28a745' : '#6c757d'};
-            color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 500;
-            margin-left: 10px;
         }
     </style>
+    <div style="display:none;overflow:hidden;line-height:1px;opacity:0;max-height:0;max-width:0">
+      SnipIt News
+    </div>
 </head>
-<body>
-    <div class="header">
-        <h1>📰 SnipIt</h1>
-        <p>Your personalized news digest for ${new Date().toLocaleDateString()}</p>
-        <span class="tier-badge">${isPaid ? 'PRO' : 'FREE'}</span>
-    </div>
-    
-    <div class="content">
-        ${summaries
-          .map(
-            (topicSummary) => `
-            <div class="topic-section">
-                <div class="topic-title">
-                    <div class="topic-icon"></div>
-                    ${topicSummary.topic}
-                </div>
-                ${topicSummary.summaries
-                  .map(
-                    (article) => `
-                    <div class="summary-item">
-                        <div class="article-title">
-                            <a href="${article.url}" target="_blank">${
-                      article.title
-                    }</a>
-                        </div>
-                        <div class="article-summary">
-                            ${
-                              isPaid
-                                ? `<p>${article.summary}</p>`
-                                : `<ul class="bullet-list"><li>${article.summary}</li></ul>`
+<body style="margin:0;padding:0;background-color:#ffffff">
+    <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="max-width:100%;width:100%;margin:0 auto;background-color:#ffffff" class="container">
+      <tbody>
+        <tr>
+          <td class="content-wrapper" style="max-width:1200px;margin:0 auto;width:100%">
+            <!-- Header -->
+            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#2d2d2d;color:#ffffff;margin:0;padding-top:24px;padding-bottom:24px" class="header-height header-padding">
+              <tbody>
+                <tr>
+                  <td>
+                    <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
+                      <tbody>
+                        <tr>
+                          <td style="text-align:center">
+                            <img src="https://res.cloudinary.com/dgqg2myag/image/upload/v1748666252/logo-white_gp5iuq.png" alt="SnipIt" style="display:block;outline:none;border:none;text-decoration:none;height:41px;margin:0 auto" class="logo-size">
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="text-align:center">
+                            <p style="font-size:25px;line-height:24px;text-align:center;letter-spacing:0px;text-transform:uppercase;opacity:1;margin-top:10px;margin-bottom:0;font-family:Roboto,sans-serif;color:#ffffff" class="news-update">
+                              NEWS UPDATE
+                            </p>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            
+            <!-- The Cut Section -->
+            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="font-family:Roboto,sans-serif;margin-bottom:46px;padding-left:51px;padding-right:51px" class="content-padding">
+              <tbody>
+                <tr>
+                  <td>
+                    <p style="font-size:40px;line-height:32px;text-align:left;letter-spacing:0px;color:#fe7e4c;opacity:1;font-weight:bold;margin-top:24px;margin-bottom:16px" class="title-size">
+                      The Cut
+                    </p>
+                    <p style="font-size:18px;line-height:24px;color:#707070;font-weight:bold;margin-top:16px;margin-bottom:24px" class="subtitle-size">
+                      Quick Bullet-Point Summary –
+                      <span style="font-style:italic;font-weight:normal">Under 60 Seconds</span>
+                    </p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            
+            ${summaries.map((topicSummary) => {
+              const topicName = topicSummary.topic.charAt(0).toUpperCase() + topicSummary.topic.slice(1);
+              
+              return `
+            <!-- Topic Section: ${topicName} -->
+            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fbfbfb;margin-bottom:30px;padding-top:43px;padding-left:51px;padding-right:51px;padding-bottom:45px" class="topic-padding">
+              <tbody>
+                <tr>
+                  <td>
+                    <!-- Topic Header -->
+                    <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:30px">
+                      <tbody>
+                        <tr>
+                          <td>
+                            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
+                            <tbody>
+                              <tr>
+                                <td style="width:40px;vertical-align:middle">
+                                  <img src="https://res.cloudinary.com/dgqg2myag/image/upload/v1748662022/snipit-logo_vzcwe5.png" alt="SnipIt" style="display:block;outline:none;border:none;text-decoration:none;height:41px" class="logo-size">
+                                </td>
+                                <td style="vertical-align:middle">
+                                  <p style="font-size:35px;line-height:32px;font-family:Raleway,sans-serif;font-weight:bold;margin-top:16px;margin-bottom:16px;color:#000000" class="topic-title-size">
+                                    ${topicName}
+                                  </p>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    
+                    <!-- Bullets (Template Style) -->
+                    ${topicSummary.summaries.map((article) => {
+                      if (isPaid) {
+                        // Paid: paragraph format with article title
+                        return `
+                    <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:30px">
+                      <tbody>
+                        <tr>
+                          <td style="width:42px;vertical-align:top;padding-top:4px">
+                            <img src="https://res.cloudinary.com/dgqg2myag/image/upload/v1748662914/snipit-logo-black_fttbsx.png" alt="•" style="display:block;outline:none;border:none;text-decoration:none;height:27px;width:27px" class="bullet-logo-size">
+                          </td>
+                          <td style="font-family:Raleway,sans-serif;vertical-align:top">
+                            <a href="${article.url}" style="color:#fe7e4c;text-decoration-line:none;font-weight:bold;font-size:22px;margin-top:0;margin-bottom:12px;display:block;line-height:28px" target="_blank" class="article-title-size">${article.title}</a>
+                            <p style="font-size:16px;line-height:22px;margin:0;letter-spacing:0;font-weight:500;margin-top:0;margin-bottom:0;margin-left:0;margin-right:0;color:#000000">${article.summary}</p>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    `;
+                      } else {
+                        // Free: Template style - each bullet has logo, bold orange title, and description
+                        let bullets: string[] = [];
+                        
+                        // Check if article has bullets array (new format)
+                        if (article.bullets && Array.isArray(article.bullets)) {
+                          bullets = article.bullets;
+                        } else {
+                          // Fallback: parse from summary string
+                          bullets = article.summary
+                            .split(/\n|•|-\s*/)
+                            .map(b => b.trim())
+                            .filter(b => b.length > 15)
+                            .slice(0, 3);
+                          
+                          // If we don't have enough bullets, try splitting by sentences
+                          if (bullets.length < 3) {
+                            const sentences = article.summary
+                              .split(/\.\s+/)
+                              .map(b => b.trim())
+                              .filter(b => b.length > 20);
+                            
+                            // Group sentences into bullets (1-2 sentences each)
+                            bullets = [];
+                            for (let i = 0; i < Math.min(3, sentences.length); i++) {
+                              const startIdx = Math.floor((sentences.length / 3) * i);
+                              const endIdx = i === 2 ? sentences.length : Math.floor((sentences.length / 3) * (i + 1));
+                              const bulletText = sentences.slice(startIdx, endIdx).join('. ').trim();
+                              if (bulletText) {
+                                bullets.push(bulletText + (bulletText.endsWith('.') ? '' : '.'));
+                              }
                             }
-                        </div>
-                        <div class="article-meta">
-                            <span class="article-source">${
-                              article.source
-                            }</span>
-                            <span>Read more →</span>
-                        </div>
-                    </div>
-                `
-                  )
-                  .join('')}
-            </div>
-        `
-          )
-          .join('')}
-    </div>
-    
-    <div class="footer">
-        <p>
-            <a href="${
-              process.env.NEXT_PUBLIC_APP_URL
-            }/dashboard">Manage your topics</a> | 
-            <a href="${
-              process.env.NEXT_PUBLIC_APP_URL
-            }/unsubscribe?email=${encodeURIComponent(email)}">Unsubscribe</a>
-        </p>
-        <p>© 2024 SnipIt. Stay informed, stay focused.</p>
-    </div>
+                          }
+                        }
+                        
+                        // Format bullets in template style: logo + bold orange title + description
+                        // Use article title as the title for each bullet, or extract from bullet text
+                        return bullets.map((bullet, index) => {
+                          // Remove leading bullet characters if present
+                          const cleanBullet = bullet.replace(/^[•\-\*]\s*/, '').trim();
+                          
+                          // Extract a short title from the bullet (first 5-8 words) or use article title
+                          const words = cleanBullet.split(' ');
+                          const shortTitle = words.length > 8 
+                            ? words.slice(0, 8).join(' ') + '...'
+                            : cleanBullet.length > 60
+                            ? cleanBullet.substring(0, 60) + '...'
+                            : article.title;
+                          
+                          // Description is the full bullet text
+                          const description = cleanBullet;
+                          
+                          return `
+                    <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:24px">
+                      <tbody>
+                        <tr>
+                          <td style="width:32px;vertical-align:top;padding-top:4px">
+                            <img src="https://res.cloudinary.com/dgqg2myag/image/upload/v1748662914/snipit-logo-black_fttbsx.png" alt="•" style="display:block;outline:none;border:none;text-decoration:none;height:20px;width:20px" />
+                          </td>
+                          <td style="font-family:Raleway,sans-serif;vertical-align:top">
+                            <a href="${article.url}" style="color:#fe7e4c;text-decoration-line:none;font-weight:bold;font-size:18px;margin-top:0;margin-bottom:6px;display:block;line-height:24px" target="_blank">${article.title}</a>
+                            <p style="font-size:16px;line-height:22px;margin:0;letter-spacing:0;font-weight:400;color:#000000">${description}</p>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    `;
+                        }).join('');
+                      }
+                    }).join('')}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            `;
+            }).join('')}
+            
+            <!-- Footer -->
+            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#2d2d2d;min-height:111px">
+              <tbody>
+                <tr>
+                  <td style="text-align:center;padding:20px">
+                    <img src="https://res.cloudinary.com/dgqg2myag/image/upload/v1748666252/logo-white_gp5iuq.png" alt="SnipIt" style="display:block;outline:none;border:none;text-decoration:none;width:100px;max-width:100%;margin:0 auto">
+                    <p style="color:#ffffff;font-size:12px;margin-top:10px;font-family:Roboto,sans-serif;line-height:20px">
+                      <a href="${appUrl}/dashboard" style="color:#fe7e4c;text-decoration:none">Manage topics</a>
+                      <span style="color:#666;margin:0 8px">|</span>
+                      <a href="${appUrl}/unsubscribe?email=${encodeURIComponent(email)}" style="color:#fe7e4c;text-decoration:none">Unsubscribe</a>
+                    </p>
+                    <p style="color:#999;font-size:11px;margin-top:8px;font-family:Roboto,sans-serif">© 2024 SnipIt. Stay informed, stay focused.</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      </tbody>
+    </table>
 </body>
-</html>
-  `;
+</html>`;
 }

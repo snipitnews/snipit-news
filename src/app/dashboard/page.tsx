@@ -3,7 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Plus, X, Crown, Clock, Pause, Play, Mail } from 'lucide-react';
+import { Plus, X, Crown, Clock, Pause, Play, Mail, Check } from 'lucide-react';
+import Navigation from '@/components/Navigation';
+import TopicSelector from '@/components/TopicSelector';
 
 interface User {
   id: string;
@@ -37,9 +39,8 @@ export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
-  const [newTopic, setNewTopic] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [isAddingTopic, setIsAddingTopic] = useState(false);
+  const [isAddingTopic, setIsAddingTopic] = useState<string | null>(null);
   const [emailSettings, setEmailSettings] = useState<EmailSettings | null>(
     null
   );
@@ -142,17 +143,31 @@ export default function Dashboard() {
     }
   };
 
-  const addTopic = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTopic.trim() || !user) return;
+  const addTopic = async (subtopic: string) => {
+    if (!user) return;
 
-    setIsAddingTopic(true);
+    const maxTopics = user.subscription_tier === 'paid' ? 12 : 5;
+    
+    if (topics.length >= maxTopics) {
+      alert(
+        `Topic limit reached. ${user.subscription_tier === 'paid' ? 'Pro' : 'Free'} tier allows ${maxTopics} topics.`
+      );
+      return;
+    }
+
+    // Check if already selected
+    if (topics.some((t) => t.topic_name.toLowerCase() === subtopic.toLowerCase())) {
+      alert('This topic is already in your list.');
+      return;
+    }
+
+    setIsAddingTopic(subtopic);
     try {
       const { data, error } = await supabase
         .from('user_topics')
         .insert({
           user_id: user.id,
-          topic_name: newTopic.trim(),
+          topic_name: subtopic.trim(),
         })
         .select()
         .single();
@@ -160,8 +175,10 @@ export default function Dashboard() {
       if (error) {
         if (error.message.includes('Topic limit exceeded')) {
           alert(
-            'Topic limit exceeded. Free tier allows 5 topics, paid tier allows 10 topics.'
+            `Topic limit exceeded. ${user.subscription_tier === 'paid' ? 'Pro' : 'Free'} tier allows ${maxTopics} topics.`
           );
+        } else if (error.message.includes('unique constraint')) {
+          alert('This topic is already in your list.');
         } else {
           alert('Error adding topic: ' + error.message);
         }
@@ -169,12 +186,11 @@ export default function Dashboard() {
       }
 
       setTopics([...topics, data]);
-      setNewTopic('');
     } catch (error) {
       console.error('Error adding topic:', error);
       alert('Error adding topic');
     } finally {
-      setIsAddingTopic(false);
+      setIsAddingTopic(null);
     }
   };
 
@@ -284,11 +300,6 @@ export default function Dashboard() {
     }
   };
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    window.location.href = '/';
-  };
-
   const handleTestEmail = async () => {
     if (!confirm('Send a test email digest to your email address?')) return;
 
@@ -327,10 +338,10 @@ export default function Dashboard() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#1a1a1a] flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading your dashboard...</p>
+          <div className="w-8 h-8 border-2 border-[#FFA500]/30 border-t-[#FFA500] rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-400 text-sm">Loading your dashboard...</p>
         </div>
       </div>
     );
@@ -356,256 +367,156 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-gradient-to-r from-orange-400 to-orange-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">S</span>
-              </div>
-              <span className="text-xl font-bold text-gray-900">SnipIt</span>
-            </div>
+    <div className="min-h-screen bg-[#1a1a1a]">
+      <Navigation />
 
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <span className="text-sm text-gray-600">{user?.email}</span>
-                <span
-                  className={`px-2 py-1 text-xs font-medium rounded-full ${
-                    user?.subscription_tier === 'paid'
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-gray-100 text-gray-800'
-                  }`}
-                >
-                  {user?.subscription_tier === 'paid' ? 'Pro' : 'Free'}
-                </span>
-              </div>
-              <button
-                onClick={handleSignOut}
-                className="text-sm text-gray-600 hover:text-gray-900"
-              >
-                Sign Out
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-5xl mx-auto px-6 py-12">
         {/* Welcome Section */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome to SnipIt! 👋
+        <div className="mb-12">
+          <h1 className="text-3xl font-medium text-white mb-3">
+            Dashboard
           </h1>
-          <p className="text-gray-600">
-            Choose the topics you want to stay informed about. We&apos;ll send
-            you a daily digest every morning.
+          <p className="text-gray-400">
+            Manage your topics and email preferences.
           </p>
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white p-6 rounded-lg shadow-sm">
-            <div className="flex items-center">
-              <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
-                <span className="text-2xl">📰</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">
-                  Active Topics
-                </p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {topics.length}
-                </p>
-              </div>
-            </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
+          <div className="bg-[#1a1a1a] p-6 border border-[#FFA500]/20">
+            <p className="text-sm text-gray-400 mb-2">Active Topics</p>
+            <p className="text-3xl font-medium text-white">
+              {topics.length}
+            </p>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow-sm">
-            <div className="flex items-center">
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <Clock className="w-6 h-6 text-blue-500" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Next Digest</p>
-                <p className="text-lg font-bold text-gray-900">
-                  {formatDeliveryTime()}
-                </p>
-              </div>
-            </div>
+          <div className="bg-[#1a1a1a] p-6 border border-[#FFA500]/20">
+            <p className="text-sm text-gray-400 mb-2">Next Digest</p>
+            <p className="text-lg font-medium text-white">
+              {formatDeliveryTime()}
+            </p>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow-sm">
-            <div className="flex items-center">
-              <div
-                className={`w-12 h-12 rounded-lg flex items-center justify-center ${
-                  isPaused ? 'bg-red-100' : 'bg-green-100'
-                }`}
-              >
-                {isPaused ? (
-                  <Pause className="w-6 h-6 text-red-500" />
-                ) : (
-                  <Play className="w-6 h-6 text-green-500" />
-                )}
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Status</p>
-                <p className="text-lg font-bold text-gray-900">
-                  {isPaused ? 'Paused' : 'Active'}
-                </p>
-              </div>
-            </div>
+          <div className="bg-[#1a1a1a] p-6 border border-[#FFA500]/20">
+            <p className="text-sm text-gray-400 mb-2">Status</p>
+            <p className="text-lg font-medium text-white">
+              {isPaused ? 'Paused' : 'Active'}
+            </p>
           </div>
 
-          <div className="bg-white p-6 rounded-lg shadow-sm">
-            <div className="flex items-center">
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <span className="text-2xl">📧</span>
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-600">Plan</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {user?.subscription_tier === 'paid' ? 'Pro' : 'Free'}
-                </p>
-              </div>
-            </div>
+          <div className="bg-[#1a1a1a] p-6 border border-[#FFA500]/20">
+            <p className="text-sm text-gray-400 mb-2">Plan</p>
+            <p className="text-lg font-medium text-white">
+              {user?.subscription_tier === 'paid' ? 'Pro' : 'Free'}
+            </p>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="bg-white rounded-lg shadow-sm mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="flex -mb-px">
-              <button
-                onClick={() => setActiveTab('topics')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
-                  activeTab === 'topics'
-                    ? 'border-orange-500 text-orange-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                Topics
-              </button>
-              <button
-                onClick={() => setActiveTab('settings')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
-                  activeTab === 'settings'
-                    ? 'border-orange-500 text-orange-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                Settings
-              </button>
-              <button
-                onClick={() => setActiveTab('archive')}
-                className={`px-6 py-4 text-sm font-medium border-b-2 ${
-                  activeTab === 'archive'
-                    ? 'border-orange-500 text-orange-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                Archive
-              </button>
-            </nav>
-          </div>
+        <div className="bg-[#1a1a1a] border border-[#FFA500]/20 mb-6">
+          <nav className="flex">
+            <button
+              onClick={() => setActiveTab('topics')}
+              className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'topics'
+                  ? 'border-[#FFA500] text-[#FFA500]'
+                  : 'border-transparent text-gray-400 hover:text-[#FFA500]'
+              }`}
+            >
+              Topics
+            </button>
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'settings'
+                  ? 'border-[#FFA500] text-[#FFA500]'
+                  : 'border-transparent text-gray-400 hover:text-[#FFA500]'
+              }`}
+            >
+              Settings
+            </button>
+            <button
+              onClick={() => setActiveTab('archive')}
+              className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'archive'
+                  ? 'border-[#FFA500] text-[#FFA500]'
+                  : 'border-transparent text-gray-400 hover:text-[#FFA500]'
+              }`}
+            >
+              Archive
+            </button>
+          </nav>
         </div>
 
         {/* Topics Tab */}
         {activeTab === 'topics' && (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">
+          <div className="bg-[#1a1a1a] border border-[#FFA500]/20 p-8">
+            <div className="flex justify-between items-center mb-8">
+              <h2 className="text-lg font-medium text-white">
                 Your Topics
               </h2>
-              <div className="text-sm text-gray-600">
+              <div className="text-sm text-gray-400">
                 {topics.length} / {maxTopics} topics
               </div>
             </div>
 
-            {/* Add Topic Form */}
-            {canAddMore && (
-              <form onSubmit={addTopic} className="mb-6">
-                <div className="flex gap-3">
-                  <input
-                    type="text"
-                    value={newTopic}
-                    onChange={(e) => setNewTopic(e.target.value)}
-                    placeholder="e.g., artificial intelligence, climate change, sports, tech, crypto"
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                    disabled={isAddingTopic}
-                  />
-                  <button
-                    type="submit"
-                    disabled={isAddingTopic || !newTopic.trim()}
-                    className="px-6 py-2 bg-gradient-to-r from-orange-400 to-orange-500 text-white font-medium rounded-lg hover:from-orange-500 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>{isAddingTopic ? 'Adding...' : 'Add Topic'}</span>
-                  </button>
+            {/* Selected Topics Summary */}
+            {topics.length > 0 && (
+              <div className="mb-8 p-4 bg-[#2a2a2a] rounded-lg border border-[#FFA500]/20">
+                <div className="flex flex-wrap gap-2">
+                  {topics.map((topic) => (
+                    <div
+                      key={topic.id}
+                      className="flex items-center space-x-2 px-3 py-1.5 bg-[#FFA500]/10 border border-[#FFA500]/30 rounded-full text-sm text-white"
+                    >
+                      <Check className="w-4 h-4 text-[#FFA500]" />
+                      <span>{topic.topic_name}</span>
+                      <button
+                        onClick={() => removeTopic(topic.id)}
+                        className="text-gray-400 hover:text-red-400 transition-colors ml-1"
+                        title="Remove topic"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              </form>
+                {canAddMore && (
+                  <p className="mt-4 text-sm text-gray-400 text-center">
+                    You can add {maxTopics - topics.length} more topic{maxTopics - topics.length !== 1 ? 's' : ''}
+                  </p>
+                )}
+              </div>
             )}
 
-            {/* Topics List */}
-            {topics.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <span className="text-2xl">📝</span>
-                </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  No topics yet
-                </h3>
-                <p className="text-gray-600 mb-4">
-                  Add your first topic to start receiving personalized news
-                  digests.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {topics.map((topic) => (
-                  <div
-                    key={topic.id}
-                    className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                      <span className="font-medium text-gray-900">
-                        {topic.topic_name}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => removeTopic(topic.id)}
-                      className="text-gray-400 hover:text-red-500 transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* Topic Selector */}
+            <TopicSelector
+              selectedTopics={topics}
+              onAddTopic={addTopic}
+              onRemoveTopic={removeTopic}
+              maxTopics={maxTopics}
+              canAddMore={canAddMore}
+              isAddingTopic={isAddingTopic}
+              compact={true}
+            />
 
             {/* Upgrade CTA */}
             {user?.subscription_tier === 'free' && (
-              <div className="mt-6 p-4 bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg border border-orange-200">
+              <div className="mt-8 p-6 bg-[#1a1a1a] border border-[#FFA500]/30">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Crown className="w-6 h-6 text-yellow-500" />
-                    <div>
-                      <h3 className="font-semibold text-gray-900">
-                        Upgrade to Pro
-                      </h3>
-                      <p className="text-sm text-gray-600">
-                        Get 12 topics and paragraph summaries for just
-                        $2.99/month
-                      </p>
-                    </div>
+                  <div>
+                    <h3 className="font-medium text-white mb-1">
+                      Upgrade to Pro
+                    </h3>
+                    <p className="text-sm text-gray-400">
+                      Pro plan coming soon with 12 topics and paragraph summaries
+                    </p>
                   </div>
                   <button
-                    onClick={handleUpgrade}
-                    className="px-4 py-2 bg-gradient-to-r from-orange-400 to-orange-500 text-white font-medium rounded-lg hover:from-orange-500 hover:to-orange-600 transition-all duration-200"
+                    disabled
+                    className="px-4 py-2 bg-gray-600 text-gray-300 text-sm font-medium cursor-not-allowed opacity-60 transition-all"
                   >
-                    Upgrade Now
+                    Coming Soon
                   </button>
                 </div>
               </div>
@@ -615,19 +526,19 @@ export default function Dashboard() {
 
         {/* Settings Tab */}
         {activeTab === 'settings' && (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-6">
+          <div className="bg-[#1a1a1a] border border-[#FFA500]/20 p-8">
+            <h2 className="text-lg font-medium text-white mb-8">
               Email Settings
             </h2>
 
             <div className="space-y-6">
               {/* Pause/Resume */}
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center justify-between p-6 bg-[#1a1a1a] border border-[#FFA500]/20 mb-6">
                 <div>
-                  <h3 className="font-medium text-gray-900 mb-1">
+                  <h3 className="font-medium text-white mb-1">
                     Email Delivery
                   </h3>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-gray-400">
                     {isPaused
                       ? 'Your daily digests are currently paused'
                       : 'Your daily digests are active'}
@@ -635,10 +546,10 @@ export default function Dashboard() {
                 </div>
                 <button
                   onClick={togglePause}
-                  className={`px-4 py-2 rounded-lg font-medium flex items-center space-x-2 ${
+                  className={`px-4 py-2 font-medium flex items-center space-x-2 transition-colors ${
                     isPaused
-                      ? 'bg-green-500 text-white hover:bg-green-600'
-                      : 'bg-red-500 text-white hover:bg-red-600'
+                      ? 'bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] hover:from-[#FFD700] hover:to-[#FFA500]'
+                      : 'bg-[#1a1a1a] border border-[#FFA500]/30 text-[#FFA500] hover:border-[#FFA500]'
                   }`}
                 >
                   {isPaused ? (
@@ -656,30 +567,30 @@ export default function Dashboard() {
               </div>
 
               {/* Delivery Time */}
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <h3 className="font-medium text-gray-900 mb-4">
+              <div className="p-6 bg-[#1a1a1a] border border-[#FFA500]/20 mb-6">
+                <h3 className="font-medium text-white mb-6">
                   Delivery Time
                 </h3>
-                <div className="space-y-4">
+                <div className="space-y-6">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
                       Time
                     </label>
                     <input
                       type="time"
                       value={deliveryTime}
                       onChange={(e) => setDeliveryTime(e.target.value)}
-                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      className="px-4 py-2 border border-[#FFA500]/30 bg-[#1a1a1a] text-white focus:outline-none focus:ring-1 focus:ring-[#FFA500] focus:border-[#FFA500]"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
                       Timezone
                     </label>
                     <select
                       value={timezone}
                       onChange={(e) => setTimezone(e.target.value)}
-                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent w-full"
+                      className="px-4 py-2 border border-[#FFA500]/30 bg-[#1a1a1a] text-white focus:outline-none focus:ring-1 focus:ring-[#FFA500] focus:border-[#FFA500] w-full"
                     >
                       <option value="America/New_York">
                         Eastern Time (EST/EDT)
@@ -700,7 +611,7 @@ export default function Dashboard() {
                   </div>
                   <button
                     onClick={updateEmailSettings}
-                    className="px-4 py-2 bg-gradient-to-r from-orange-400 to-orange-500 text-white font-medium rounded-lg hover:from-orange-500 hover:to-orange-600 transition-all"
+                    className="px-4 py-2 bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] font-medium hover:from-[#FFD700] hover:to-[#FFA500] transition-all"
                   >
                     Save Changes
                   </button>
@@ -708,16 +619,16 @@ export default function Dashboard() {
               </div>
 
               {/* Test Email */}
-              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <h3 className="font-medium text-gray-900 mb-2">Test Email</h3>
-                <p className="text-sm text-gray-600 mb-4">
+              <div className="p-6 bg-[#1a1a1a] border border-[#FFA500]/20 mb-6">
+                <h3 className="font-medium text-white mb-2">Test Email</h3>
+                <p className="text-sm text-gray-400 mb-4">
                   Send yourself a test email digest with your current topics to
                   see how it looks.
                 </p>
                 <button
                   onClick={handleTestEmail}
                   disabled={topics.length === 0}
-                  className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  className="px-4 py-2 bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] font-medium hover:from-[#FFD700] hover:to-[#FFA500] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
                   Send Test Email
                 </button>
@@ -729,20 +640,25 @@ export default function Dashboard() {
               </div>
 
               {/* Subscription Management */}
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <h3 className="font-medium text-gray-900 mb-2">Subscription</h3>
-                <p className="text-sm text-gray-600 mb-4">
+              <div className="p-6 bg-[#1a1a1a] border border-[#FFA500]/20">
+                <h3 className="font-medium text-white mb-2">Subscription</h3>
+                <p className="text-sm text-gray-400 mb-4">
                   {user?.subscription_tier === 'paid'
                     ? 'You are on the Pro plan. Manage your subscription below.'
                     : 'Upgrade to Pro for more topics and better summaries.'}
                 </p>
                 <button
-                  onClick={handleUpgrade}
-                  className="px-4 py-2 bg-gradient-to-r from-orange-400 to-orange-500 text-white font-medium rounded-lg hover:from-orange-500 hover:to-orange-600 transition-all"
+                  disabled={user?.subscription_tier !== 'paid'}
+                  onClick={user?.subscription_tier === 'paid' ? handleUpgrade : undefined}
+                  className={`px-4 py-2 font-medium transition-all ${
+                    user?.subscription_tier === 'paid'
+                      ? 'bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] hover:from-[#FFD700] hover:to-[#FFA500]'
+                      : 'bg-gray-600 text-gray-300 cursor-not-allowed opacity-60'
+                  }`}
                 >
                   {user?.subscription_tier === 'paid'
                     ? 'Manage Subscription'
-                    : 'Upgrade to Pro'}
+                    : 'Coming Soon'}
                 </button>
               </div>
             </div>
@@ -751,18 +667,18 @@ export default function Dashboard() {
 
         {/* Archive Tab */}
         {activeTab === 'archive' && (
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-6">
+          <div className="bg-[#1a1a1a] border border-[#FFA500]/20 p-8">
+            <h2 className="text-lg font-medium text-white mb-8">
               Email Archive
             </h2>
 
             {archive.length === 0 ? (
               <div className="text-center py-12">
-                <Mail className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                <Mail className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-white mb-2">
                   No emails yet
                 </h3>
-                <p className="text-gray-600">
+                <p className="text-gray-400">
                   Your daily digests will appear here once they start being
                   sent.
                 </p>
@@ -772,14 +688,14 @@ export default function Dashboard() {
                 {archive.map((email) => (
                   <div
                     key={email.id}
-                    className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                    className="p-6 bg-[#1a1a1a] border border-[#FFA500]/20 hover:border-[#FFA500]/40 transition-colors"
                   >
-                    <div className="flex justify-between items-start mb-2">
+                    <div className="flex justify-between items-start mb-3">
                       <div>
-                        <h3 className="font-medium text-gray-900">
+                        <h3 className="font-medium text-white mb-1">
                           {email.subject}
                         </h3>
-                        <p className="text-sm text-gray-600">
+                        <p className="text-sm text-gray-400">
                           {new Date(email.sent_at).toLocaleDateString('en-US', {
                             weekday: 'long',
                             year: 'numeric',
@@ -789,8 +705,8 @@ export default function Dashboard() {
                         </p>
                       </div>
                     </div>
-                    <div className="mt-2">
-                      <p className="text-sm text-gray-600">
+                    <div>
+                      <p className="text-sm text-gray-400">
                         Topics: {email.topics.join(', ')}
                       </p>
                     </div>
