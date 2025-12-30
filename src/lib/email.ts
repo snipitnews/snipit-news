@@ -13,7 +13,7 @@ export async function sendNewsDigest(
     const html = generateEmailHTML(email, summaries, isPaid);
 
     const { data, error } = await resend.emails.send({
-      from: 'SnipIt <noreply@resend.dev>', // Using Resend's free domain
+      from: 'SnipIt <nofluff@newsletter.snipit.news>', // Using custom domain
       to: [email],
       subject: `Your SnipIt Daily Digest - ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
       html,
@@ -322,12 +322,15 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
                 <tr>
                   <td style="text-align:center;padding:20px">
                     <img src="https://res.cloudinary.com/dgqg2myag/image/upload/v1748666252/logo-white_gp5iuq.png" alt="SnipIt" style="display:block;outline:none;border:none;text-decoration:none;width:100px;max-width:100%;margin:0 auto">
-                    <p style="color:#ffffff;font-size:12px;margin-top:10px;font-family:Roboto,sans-serif;line-height:20px">
-                      <a href="${appUrl}/dashboard" style="color:#fe7e4c;text-decoration:none">Manage topics</a>
-                      <span style="color:#666;margin:0 8px">|</span>
-                      <a href="${appUrl}/unsubscribe?email=${encodeURIComponent(email)}" style="color:#fe7e4c;text-decoration:none">Unsubscribe</a>
+                    <p style="color:#999;font-size:11px;margin-top:10px;font-family:Roboto,sans-serif;line-height:18px">
+                      You're receiving this email because you're subscribed to SnipIt News for your selected topics.
+                      <br />
+                      To manage your preferences or unsubscribe at any time, visit
+                      <a href="${appUrl}/dashboard" style="color:#cccccc;text-decoration:none"> your dashboard</a>
+                      or
+                      <a href="${appUrl}/unsubscribe?email=${encodeURIComponent(email)}" style="color:#cccccc;text-decoration:none">unsubscribe here</a>.
                     </p>
-                    <p style="color:#999;font-size:11px;margin-top:8px;font-family:Roboto,sans-serif">© 2024 SnipIt. Stay informed, stay focused.</p>
+                    <p style="color:#777;font-size:10px;margin-top:8px;font-family:Roboto,sans-serif">© 2024 SnipIt. Stay informed, stay focused.</p>
                   </td>
                 </tr>
               </tbody>

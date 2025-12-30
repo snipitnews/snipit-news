@@ -37,16 +37,34 @@ export default function UnsubscribePage() {
         return;
       }
 
-      // Remove all topics for this user
-      const { error: deleteError } = await supabase
+      // Remove all topics for this user and pause email delivery
+      const { error: topicsError } = await supabase
         .from('user_topics')
         .delete()
         .eq('user_id', user.id);
 
-      if (deleteError) {
+      if (topicsError) {
         setMessage('Error unsubscribing. Please try again.');
-        console.error('Error deleting topics:', deleteError);
+        console.error('Error deleting topics:', topicsError);
         return;
+      }
+
+      // Pause email delivery if settings exist
+      const { error: settingsError } = await supabase
+        .from('user_email_settings')
+        .upsert(
+          {
+            user_id: user.id,
+            paused: true,
+          },
+          {
+            onConflict: 'user_id',
+          }
+        );
+
+      if (settingsError) {
+        console.error('Error updating email settings for unsubscribe:', settingsError);
+        // Don't fail unsubscribe if pausing fails; topics are already removed
       }
 
       setMessage(

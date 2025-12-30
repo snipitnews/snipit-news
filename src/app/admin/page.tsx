@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Navigation from '@/components/Navigation';
-import { Plus, X, Edit2, Save, ChevronDown, ChevronUp, Users, BookOpen } from 'lucide-react';
+import { Plus, X, Edit2, Save, ChevronDown, ChevronUp, Users, BookOpen, Trash2 } from 'lucide-react';
 
 interface User {
   id: string;
@@ -48,6 +48,11 @@ export default function AdminPortal() {
   // User role editing state
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editingRole, setEditingRole] = useState<'user' | 'admin'>('user');
+
+  // Topic editing state
+  const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
+  const [editingTopicName, setEditingTopicName] = useState<string>('');
+  const [isSavingTopic, setIsSavingTopic] = useState(false);
 
   useEffect(() => {
     checkAuthAndLoadData();
@@ -197,6 +202,111 @@ export default function AdminPortal() {
       setError('Failed to add topic.');
     } finally {
       setIsAddingTopic(false);
+    }
+  };
+
+  const startEditingTopic = (topic: Topic) => {
+    setEditingTopicId(topic.id);
+    setEditingTopicName(topic.name);
+  };
+
+  const cancelEditingTopic = () => {
+    setEditingTopicId(null);
+    setEditingTopicName('');
+  };
+
+  const saveTopic = async () => {
+    if (!editingTopicId || !editingTopicName.trim()) return;
+
+    setIsSavingTopic(true);
+    try {
+      const response = await fetch('/api/admin/topics', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          id: editingTopicId,
+          name: editingTopicName.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        const { error: errorData } = await response.json();
+        alert(errorData || 'Failed to update topic.');
+        return;
+      }
+
+      const { topic: updatedTopic } = await response.json();
+
+      // Update flat topics list
+      const updatedTopics = topics.map((t) =>
+        t.id === updatedTopic.id ? updatedTopic : t
+      );
+      setTopics(updatedTopics);
+
+      // Update grouped topics
+      const newGrouped: Record<string, Topic[]> = {};
+      updatedTopics.forEach((t) => {
+        if (!newGrouped[t.main_category]) {
+          newGrouped[t.main_category] = [];
+        }
+        newGrouped[t.main_category].push(t);
+      });
+      setGroupedTopics(newGrouped);
+
+      cancelEditingTopic();
+    } catch (error) {
+      console.error('Error updating topic:', error);
+      alert('Failed to update topic.');
+    } finally {
+      setIsSavingTopic(false);
+    }
+  };
+
+  const deleteTopic = async (topic: Topic) => {
+    if (
+      !confirm(
+        `Are you sure you want to delete the topic "${topic.name}"? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/admin/topics?id=${encodeURIComponent(topic.id)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const { error: errorData } = await response.json();
+        alert(errorData || 'Failed to delete topic.');
+        return;
+      }
+
+      // Remove from flat topics list
+      const updatedTopics = topics.filter((t) => t.id !== topic.id);
+      setTopics(updatedTopics);
+
+      // Update grouped topics
+      const newGrouped: Record<string, Topic[]> = {};
+      updatedTopics.forEach((t) => {
+        if (!newGrouped[t.main_category]) {
+          newGrouped[t.main_category] = [];
+        }
+        newGrouped[t.main_category].push(t);
+      });
+      setGroupedTopics(newGrouped);
+
+      // Reset editing state if needed
+      if (editingTopicId === topic.id) {
+        cancelEditingTopic();
+      }
+    } catch (error) {
+      console.error('Error deleting topic:', error);
+      alert('Failed to delete topic.');
     }
   };
 
@@ -614,9 +724,57 @@ export default function AdminPortal() {
                                 {categoryTopics.map((topic) => (
                                   <div
                                     key={topic.id}
-                                    className="px-3 py-2 bg-[#2a2a2a] border border-[#FFA500]/20 rounded text-sm text-white"
+                                    className="px-3 py-2 bg-[#2a2a2a] border border-[#FFA500]/20 rounded text-sm text-white flex items-center justify-between space-x-2"
                                   >
-                                    {topic.name}
+                                    {editingTopicId === topic.id ? (
+                                      <>
+                                        <input
+                                          type="text"
+                                          value={editingTopicName}
+                                          onChange={(e) => setEditingTopicName(e.target.value)}
+                                          className="flex-1 bg-[#1a1a1a] border border-[#FFA500]/40 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#FFA500]"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={saveTopic}
+                                          disabled={isSavingTopic}
+                                          className="text-[#FFA500] hover:text-[#FFD700] disabled:opacity-50"
+                                          title="Save"
+                                        >
+                                          <Save className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={cancelEditingTopic}
+                                          className="text-gray-400 hover:text-white"
+                                          title="Cancel"
+                                        >
+                                          <X className="w-3 h-3" />
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span className="flex-1 truncate">{topic.name}</span>
+                                        <div className="flex items-center space-x-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => startEditingTopic(topic)}
+                                            className="text-gray-400 hover:text-[#FFA500]"
+                                            title="Edit topic name"
+                                          >
+                                            <Edit2 className="w-3 h-3" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => deleteTopic(topic)}
+                                            className="text-gray-500 hover:text-red-400"
+                                            title="Delete topic"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                      </>
+                                    )}
                                   </div>
                                 ))}
                               </div>

@@ -23,6 +23,23 @@ export default function Navigation() {
 
   useEffect(() => {
     loadUser();
+
+    // Listen to auth state changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        loadUser();
+      } else {
+        // User signed out - clear state immediately
+        setUser(null);
+        setIsLoading(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const loadUser = async () => {
@@ -40,19 +57,43 @@ export default function Navigation() {
 
         if (userData) {
           setUser(userData);
+        } else {
+          setUser(null);
         }
+      } else {
+        setUser(null);
       }
     } catch (error) {
       console.error('Error loading user:', error);
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push('/');
-    setIsMenuOpen(false);
+    try {
+      // Clear user state immediately for instant UI update
+      setUser(null);
+      setIsMenuOpen(false);
+      
+      // Sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        console.error('Error signing out:', error);
+        // Reload user if sign out failed
+        loadUser();
+      } else {
+        // Force router refresh to update all components
+        router.refresh();
+        router.push('/');
+      }
+    } catch (error) {
+      console.error('Error during sign out:', error);
+      // Reload user if sign out failed
+      loadUser();
+    }
   };
 
   const isActive = (path: string) => pathname === path;

@@ -81,6 +81,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Only admins are allowed to trigger test emails
+    if (userData.role !== 'admin') {
+      return NextResponse.json(
+        { error: 'Forbidden. Only admins can send test emails.' },
+        { status: 403 }
+      );
+    }
+
     // Get user's topics
     const { data: topicsData, error: topicsError } = await getSupabaseAdmin()
       .from('user_topics')

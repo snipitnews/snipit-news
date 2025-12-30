@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Navigation from '@/components/Navigation';
 import Image from 'next/image';
 import Link from 'next/link';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import {
   Check,
   Clock,
@@ -15,7 +16,9 @@ import {
   X,
   ArrowRight,
   Star,
+  Mail,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface User {
   id: string;
@@ -40,6 +43,44 @@ export default function LandingPage() {
   const [isAddingTopic, setIsAddingTopic] = useState(false);
   const [isCheckingUser, setIsCheckingUser] = useState(true);
   const [error, setError] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const { scrollYProgress } = useScroll({
+    target: containerRef,
+    offset: ['start start', 'end start'],
+  });
+
+  const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
+  const scale = useTransform(scrollYProgress, [0, 0.5], [1, 0.95]);
+
+  // Auto-play video when it's visible
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            video.play().catch((err) => {
+              console.log('Video autoplay prevented:', err);
+            });
+          } else {
+            video.pause();
+          }
+        });
+      },
+      {
+        threshold: 0.5, // Play when 50% of video is visible
+      }
+    );
+
+    observer.observe(video);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     checkUserStatus();
@@ -62,7 +103,7 @@ export default function LandingPage() {
           setUser(userData);
           setEmail(userData.email);
 
-          // Redirect logged-in users to topics page if they have no topics, or dashboard if they do
+          // Load topics but don't redirect - let existing users stay on home page
           const { data: topicsData } = await supabase
             .from('user_topics')
             .select('*')
@@ -71,12 +112,12 @@ export default function LandingPage() {
 
           if (topicsData) {
             setTopics(topicsData);
-            // If user has topics, they can stay on landing page or go to dashboard
-            // If no topics, redirect to topics page
+            // If user has no topics, redirect to topics page
             if (topicsData.length === 0) {
               router.push('/topics');
               return;
             }
+            // If user has topics, stay on home page (don't redirect)
           } else {
             // No topics found, redirect to topics page
             router.push('/topics');
@@ -262,81 +303,183 @@ export default function LandingPage() {
     <div className="min-h-screen bg-[#1a1a1a]">
       <Navigation />
 
-      {/* Hero Section */}
-      <section className="py-24">
-        <div className="max-w-3xl mx-auto px-6">
-          <div className="text-center">
-            <h1 className="text-5xl md:text-6xl font-medium text-white mb-6 leading-tight tracking-tight">
-              Your daily news,{' '}
-              <span className="bg-gradient-to-r from-[#FFA500] to-[#FF6B47] bg-clip-text text-transparent">summarized</span>
-            </h1>
+      {/* Hero Section - Stripe-like Design */}
+      <section ref={containerRef} className="relative min-h-screen w-full overflow-hidden bg-[#030303]">
+        {/* Background gradients */}
+        <div className="absolute inset-0 bg-gradient-to-br from-[#FFA500]/[0.03] via-transparent to-[#FF6B47]/[0.03] blur-3xl" />
+        
+        <motion.div style={{ opacity, scale }} className="relative z-10">
+          <div className="container mx-auto px-4 md:px-6 pt-20 md:pt-32 pb-24">
+            <div className="max-w-6xl mx-auto">
+              <div className="text-center mb-12 md:mb-16">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6, delay: 0.2 }}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.03] border border-white/[0.08] mb-8"
+                >
+                  <div className="h-2 w-2 rounded-full bg-[#FFA500]/80 animate-pulse" />
+                  <span className="text-sm text-white/60 tracking-wide">Trusted by thousands of readers worldwide</span>
+                </motion.div>
 
-            {isExistingUser ? (
-              <div className="max-w-2xl mx-auto mt-12">
-                <p className="text-lg text-gray-400 mb-8 leading-relaxed">
-                  Welcome back! Manage your topics and preferences.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                  <button
-                    onClick={() => router.push('/topics')}
-                    className="px-8 py-4 bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] font-medium hover:from-[#FFD700] hover:to-[#FFA500] transition-all flex items-center justify-center space-x-2"
-                  >
-                    <span>Manage Topics</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={handleGoToDashboard}
-                    className="px-8 py-4 bg-[#2a2a2a] border border-[#FFA500]/30 text-white font-medium hover:bg-[#333333] transition-all"
-                  >
-                    Go to Dashboard
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <p className="text-xl text-gray-400 mb-12 max-w-2xl mx-auto leading-relaxed">
-                  Get the most important news stories delivered to your inbox
-                  every morning. AI-powered summaries that save you time while
-                  keeping you informed.
-                </p>
+                <motion.h1
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.8, delay: 0.3 }}
+                  className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold mb-6 tracking-tight"
+                >
+                  <span className="bg-clip-text text-transparent bg-gradient-to-b from-white to-white/80">
+                    Your daily news,
+                  </span>
+                  <br />
+                  <span className="bg-clip-text text-transparent bg-gradient-to-r from-[#FFA500] via-[#FFD700] to-[#FF6B47]">
+                    summarized
+                  </span>
+                </motion.h1>
 
-                <form id="hero-signup" onSubmit={handleSubmit} className="max-w-lg mx-auto mb-8">
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Enter your email address"
-                      className="flex-1 px-4 py-3 border border-[#FFA500]/30 bg-[#1a1a1a] text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-[#FFA500] focus:border-[#FFA500]"
-                      required
-                    />
-                    <button
-                      type="submit"
-                      disabled={isLoading}
-                      className="px-8 py-3 bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] font-medium hover:from-[#FFD700] hover:to-[#FFA500] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                    >
-                      {isLoading ? 'Sending...' : 'Start Free'}
-                    </button>
-                  </div>
-                  {message && (
-                    <p
-                      className={`mt-4 text-sm ${
-                        message.includes('Check your email')
-                          ? 'text-[#FFA500]'
-                          : 'text-red-400'
-                      }`}
-                    >
-                      {message}
+                {isExistingUser ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6, delay: 0.5 }}
+                    className="max-w-2xl mx-auto mt-12"
+                  >
+                    <p className="text-lg sm:text-xl text-white/50 mb-8 leading-relaxed font-light">
+                      Welcome back! Manage your topics and preferences.
                     </p>
-                  )}
-                  <p className="text-sm text-gray-500 mt-4">
-                    Free forever • No credit card required
-                  </p>
-                </form>
-              </>
-            )}
+                    <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                      <button
+                        onClick={() => router.push('/topics')}
+                        className="px-8 py-4 bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] font-semibold hover:from-[#FFD700] hover:to-[#FFA500] transition-all flex items-center justify-center space-x-2 rounded-full shadow-lg shadow-[#FFA500]/25"
+                      >
+                        <span>Manage Topics</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={handleGoToDashboard}
+                        className="px-8 py-4 bg-white/[0.05] border border-white/[0.1] text-white font-medium hover:bg-white/[0.1] transition-all rounded-full"
+                      >
+                        Go to Dashboard
+                      </button>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <>
+                    <motion.p
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.6, delay: 0.4 }}
+                      className="text-lg sm:text-xl md:text-2xl text-white/50 mb-10 leading-relaxed font-light max-w-3xl mx-auto"
+                    >
+                      Get the most important news stories delivered to your inbox
+                      every morning. AI-powered summaries that save you time while
+                      keeping you informed.
+                    </motion.p>
+
+                    <motion.form
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.6, delay: 0.5 }}
+                      id="hero-signup"
+                      onSubmit={handleSubmit}
+                      className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto mb-4"
+                    >
+                      <div className="relative flex-1">
+                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-white/40" />
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="Enter your email"
+                          className="w-full pl-12 pr-4 py-3 h-12 bg-white/[0.05] border border-white/[0.1] text-white placeholder:text-white/40 focus:border-white/30 rounded-full focus:outline-none focus:ring-2 focus:ring-[#FFA500]/50"
+                          required
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={isLoading}
+                        className="h-12 px-8 bg-gradient-to-r from-[#FFA500] to-[#FF6B47] hover:from-[#FFD700] hover:to-[#FFA500] text-[#1a1a1a] font-semibold rounded-full shadow-lg shadow-[#FFA500]/25 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                      >
+                        {isLoading ? 'Sending...' : 'Start Free'}
+                        {!isLoading && <ArrowRight className="ml-2 h-4 w-4" />}
+                      </button>
+                    </motion.form>
+                    {message && (
+                      <motion.p
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className={`mt-4 text-sm ${
+                          message.includes('Check your email')
+                            ? 'text-[#FFA500]'
+                            : 'text-red-400'
+                        }`}
+                      >
+                        {message}
+                      </motion.p>
+                    )}
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 0.6 }}
+                      className="text-sm text-white/40 mt-2"
+                    >
+                      Free forever • No credit card required
+                    </motion.p>
+                  </>
+                )}
+              </div>
+
+              {/* Video Showcase */}
+              {!isExistingUser && (
+                <motion.div
+                  initial={{ opacity: 0, y: 40 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.8, delay: 0.7 }}
+                  className="max-w-5xl mx-auto mt-16 md:mt-24"
+                >
+                  <div className="relative w-full">
+                    <div className="relative aspect-video rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
+                      <video
+                        ref={videoRef}
+                        src="/logos/Product Animation.mp4"
+                        className="w-full h-full object-cover"
+                        muted
+                        loop
+                        playsInline
+                        autoPlay
+                      />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Stats */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.9 }}
+                className="mt-16 md:mt-24 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto"
+              >
+                {[
+                  { value: '8:30 AM', label: 'Daily Delivery' },
+                  { value: '5+', label: 'Topics Free' },
+                  { value: '60s', label: 'Read Time' },
+                  { value: 'AI', label: 'Powered' },
+                ].map((stat, i) => (
+                  <div key={i} className="text-center">
+                    <div className="text-3xl md:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#FFA500] to-[#FF6B47] mb-2">
+                      {stat.value}
+                    </div>
+                    <div className="text-sm text-white/50">{stat.label}</div>
+                  </div>
+                ))}
+              </motion.div>
+            </div>
           </div>
-        </div>
+        </motion.div>
+
+
+        <div className="absolute inset-0 bg-gradient-to-t from-[#030303] via-transparent to-[#030303]/80 pointer-events-none" />
       </section>
 
       {/* Features Section */}

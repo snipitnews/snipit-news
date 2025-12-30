@@ -59,7 +59,8 @@ export async function GET(request: NextRequest) {
         .from('user_email_settings')
         .insert({
           user_id: user.id,
-          delivery_time: '08:00:00-05:00',
+          // Delivery time is fixed globally to 8:30 AM EST
+          delivery_time: '08:30:00-05:00',
           timezone: 'America/New_York',
           paused: false,
         })
@@ -120,15 +121,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { delivery_time, timezone, paused } = body;
-
-    // Validate timezone if provided
-    if (timezone && !isValidTimezone(timezone)) {
-      return NextResponse.json(
-        { error: 'Invalid timezone' },
-        { status: 400 }
-      );
-    }
+    const { paused } = body;
 
     // Update or insert settings
     const { data, error } = await getSupabaseAdmin()
@@ -136,8 +129,9 @@ export async function PUT(request: NextRequest) {
       .upsert(
         {
           user_id: user.id,
-          delivery_time: delivery_time || '08:00:00-05:00',
-          timezone: timezone || 'America/New_York',
+          // Delivery time and timezone are fixed globally to 8:30 AM EST
+          delivery_time: '08:30:00-05:00',
+          timezone: 'America/New_York',
           paused: paused !== undefined ? paused : false,
           updated_at: new Date().toISOString(),
         },
@@ -161,13 +155,3 @@ export async function PUT(request: NextRequest) {
     );
   }
 }
-
-function isValidTimezone(timezone: string): boolean {
-  try {
-    Intl.DateTimeFormat(undefined, { timeZone: timezone });
-    return true;
-  } catch {
-    return false;
-  }
-}
-

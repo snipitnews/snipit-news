@@ -96,7 +96,7 @@ export default function AuthCallback() {
                   .eq('user_id', data.user.id);
 
                 if (existingTopics && existingTopics.length > 0) {
-                  router.push('/dashboard');
+                  router.push('/');
                 } else {
                   router.push('/topics');
                 }
@@ -145,7 +145,7 @@ export default function AuthCallback() {
           .eq('user_id', existingSession.user.id);
 
         if (existingTopics && existingTopics.length > 0) {
-          router.push('/dashboard');
+          router.push('/');
         } else {
           router.push('/topics');
         }
@@ -403,7 +403,7 @@ export default function AuthCallback() {
               .eq('user_id', user.id);
 
             if (existingTopics && existingTopics.length > 0) {
-              router.push('/dashboard');
+              router.push('/');
             } else {
               router.push('/topics');
             }

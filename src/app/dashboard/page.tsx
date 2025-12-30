@@ -11,6 +11,7 @@ interface User {
   id: string;
   email: string;
   subscription_tier: 'free' | 'paid';
+  role?: 'user' | 'admin';
 }
 
 interface Topic {
@@ -44,8 +45,6 @@ export default function Dashboard() {
   const [emailSettings, setEmailSettings] = useState<EmailSettings | null>(
     null
   );
-  const [deliveryTime, setDeliveryTime] = useState('08:00');
-  const [timezone, setTimezone] = useState('America/New_York');
   const [isPaused, setIsPaused] = useState(false);
   const [archive, setArchive] = useState<EmailArchive[]>([]);
   const [activeTab, setActiveTab] = useState<'topics' | 'settings' | 'archive'>(
@@ -110,16 +109,6 @@ export default function Dashboard() {
         if (settings) {
           setEmailSettings(settings);
           setIsPaused(settings.paused || false);
-          // Parse delivery time (format: HH:MM:SS-TZ)
-          if (settings.delivery_time) {
-            const timeMatch = settings.delivery_time.match(/(\d{2}):(\d{2})/);
-            if (timeMatch) {
-              setDeliveryTime(`${timeMatch[1]}:${timeMatch[2]}`);
-            }
-          }
-          if (settings.timezone) {
-            setTimezone(settings.timezone);
-          }
         }
       }
     } catch (error) {
@@ -224,8 +213,7 @@ export default function Dashboard() {
         },
         credentials: 'include',
         body: JSON.stringify({
-          delivery_time: `${deliveryTime}:00-05:00`, // Simplified timezone handling
-          timezone: timezone,
+          // Delivery time and timezone are fixed globally (8:30 AM EST)
           paused: isPaused,
         }),
       });
@@ -256,8 +244,7 @@ export default function Dashboard() {
         },
         credentials: 'include',
         body: JSON.stringify({
-          delivery_time: emailSettings?.delivery_time || '08:00:00-05:00',
-          timezone: emailSettings?.timezone || 'America/New_York',
+          // Delivery time and timezone are fixed globally (8:30 AM EST)
           paused: newPausedState,
         }),
       });
@@ -330,6 +317,59 @@ export default function Dashboard() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (
+      !confirm(
+        'Are you sure you want to delete your SnipIt account? This will remove your topics, email settings, and email history.'
+      )
+    ) {
+      return;
+    }
+
+    const confirmation = prompt(
+      'To confirm account deletion, type DELETE in all caps and click OK.'
+    );
+
+    if (confirmation !== 'DELETE') {
+      alert('Account deletion cancelled.');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/account/delete', {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(
+          `Error deleting account: ${data.error || 'Unknown error'}${
+            data.details ? `\n\n${data.details}` : ''
+          }`
+        );
+        return;
+      }
+
+      alert(
+        'Your account has been deleted and you will no longer receive daily digests. You will be redirected to the home page.'
+      );
+
+      // Sign out locally and redirect
+      try {
+        await supabase.auth.signOut();
+      } catch (err) {
+        console.error('Error signing out after account deletion:', err);
+      }
+
+      router.push('/');
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      alert('Error deleting account. Please try again.');
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'archive') {
       loadArchive();
@@ -352,18 +392,8 @@ export default function Dashboard() {
 
   // Format delivery time for display
   const formatDeliveryTime = () => {
-    if (!emailSettings) return '8:00 AM EST';
-    const timeMatch = emailSettings.delivery_time?.match(/(\d{2}):(\d{2})/);
-    if (timeMatch) {
-      const hours = parseInt(timeMatch[1]);
-      const minutes = timeMatch[2];
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      const displayHours = hours > 12 ? hours - 12 : hours === 0 ? 12 : hours;
-      return `${displayHours}:${minutes} ${ampm} ${
-        emailSettings.timezone === 'America/New_York' ? 'EST' : 'Local'
-      }`;
-    }
-    return '8:00 AM EST';
+    // Delivery time is fixed globally to 8:30 AM EST
+    return '8:30 AM EST';
   };
 
   return (
@@ -566,100 +596,76 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              {/* Delivery Time */}
+              {/* Delivery Time Info */}
               <div className="p-6 bg-[#1a1a1a] border border-[#FFA500]/20 mb-6">
-                <h3 className="font-medium text-white mb-6">
+                <h3 className="font-medium text-white mb-2">
                   Delivery Time
                 </h3>
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Time
-                    </label>
-                    <input
-                      type="time"
-                      value={deliveryTime}
-                      onChange={(e) => setDeliveryTime(e.target.value)}
-                      className="px-4 py-2 border border-[#FFA500]/30 bg-[#1a1a1a] text-white focus:outline-none focus:ring-1 focus:ring-[#FFA500] focus:border-[#FFA500]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Timezone
-                    </label>
-                    <select
-                      value={timezone}
-                      onChange={(e) => setTimezone(e.target.value)}
-                      className="px-4 py-2 border border-[#FFA500]/30 bg-[#1a1a1a] text-white focus:outline-none focus:ring-1 focus:ring-[#FFA500] focus:border-[#FFA500] w-full"
-                    >
-                      <option value="America/New_York">
-                        Eastern Time (EST/EDT)
-                      </option>
-                      <option value="America/Chicago">
-                        Central Time (CST/CDT)
-                      </option>
-                      <option value="America/Denver">
-                        Mountain Time (MST/MDT)
-                      </option>
-                      <option value="America/Los_Angeles">
-                        Pacific Time (PST/PDT)
-                      </option>
-                      <option value="Europe/London">London (GMT/BST)</option>
-                      <option value="Europe/Paris">Paris (CET/CEST)</option>
-                      <option value="Asia/Tokyo">Tokyo (JST)</option>
-                    </select>
-                  </div>
+                <p className="text-sm text-gray-400">
+                  Your daily digest is sent at <strong className="text-white">8:30 AM EST</strong> every day. This time is fixed and cannot be changed.
+                </p>
+              </div>
+
+              {/* Test Email - Admin only */}
+              {user?.role === 'admin' && (
+                <div className="p-6 bg-[#1a1a1a] border border-[#FFA500]/20 mb-6">
+                  <h3 className="font-medium text-white mb-2">Test Email (Admin Only)</h3>
+                  <p className="text-sm text-gray-400 mb-4">
+                    Send a test email digest with your current topics to preview how it looks.
+                  </p>
                   <button
-                    onClick={updateEmailSettings}
-                    className="px-4 py-2 bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] font-medium hover:from-[#FFD700] hover:to-[#FFA500] transition-all"
+                    onClick={handleTestEmail}
+                    disabled={topics.length === 0}
+                    className="px-4 py-2 bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] font-medium hover:from-[#FFD700] hover:to-[#FFA500] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
-                    Save Changes
+                    Send Test Email
+                  </button>
+                  {topics.length === 0 && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      Add topics first to test the email
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Subscription & Account Management */}
+              <div className="p-6 bg-[#1a1a1a] border border-[#FFA500]/20 space-y-6">
+                <div>
+                  <h3 className="font-medium text-white mb-2">Subscription</h3>
+                  <p className="text-sm text-gray-400 mb-4">
+                    {user?.subscription_tier === 'paid'
+                      ? 'You are on the Pro plan. Manage your subscription below.'
+                      : 'Upgrade to Pro for more topics and better summaries.'}
+                  </p>
+                  <button
+                    disabled={user?.subscription_tier !== 'paid'}
+                    onClick={user?.subscription_tier === 'paid' ? handleUpgrade : undefined}
+                    className={`px-4 py-2 font-medium transition-all ${
+                      user?.subscription_tier === 'paid'
+                        ? 'bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] hover:from-[#FFD700] hover:to-[#FFA500]'
+                        : 'bg-gray-600 text-gray-300 cursor-not-allowed opacity-60'
+                    }`}
+                  >
+                    {user?.subscription_tier === 'paid'
+                      ? 'Manage Subscription'
+                      : 'Coming Soon'}
                   </button>
                 </div>
-              </div>
 
-              {/* Test Email */}
-              <div className="p-6 bg-[#1a1a1a] border border-[#FFA500]/20 mb-6">
-                <h3 className="font-medium text-white mb-2">Test Email</h3>
-                <p className="text-sm text-gray-400 mb-4">
-                  Send yourself a test email digest with your current topics to
-                  see how it looks.
-                </p>
-                <button
-                  onClick={handleTestEmail}
-                  disabled={topics.length === 0}
-                  className="px-4 py-2 bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] font-medium hover:from-[#FFD700] hover:to-[#FFA500] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                >
-                  Send Test Email
-                </button>
-                {topics.length === 0 && (
-                  <p className="text-xs text-gray-500 mt-2">
-                    Add topics first to test the email
+                <div className="border-t border-[#FFA500]/20 pt-4 mt-2">
+                  <h3 className="font-medium text-white mb-2">Account</h3>
+                  <p className="text-sm text-gray-400 mb-3">
+                    Deleting your account will remove your topics, email settings, and email history.
+                    You will no longer receive SnipIt News digests.
                   </p>
-                )}
-              </div>
-
-              {/* Subscription Management */}
-              <div className="p-6 bg-[#1a1a1a] border border-[#FFA500]/20">
-                <h3 className="font-medium text-white mb-2">Subscription</h3>
-                <p className="text-sm text-gray-400 mb-4">
-                  {user?.subscription_tier === 'paid'
-                    ? 'You are on the Pro plan. Manage your subscription below.'
-                    : 'Upgrade to Pro for more topics and better summaries.'}
-                </p>
-                <button
-                  disabled={user?.subscription_tier !== 'paid'}
-                  onClick={user?.subscription_tier === 'paid' ? handleUpgrade : undefined}
-                  className={`px-4 py-2 font-medium transition-all ${
-                    user?.subscription_tier === 'paid'
-                      ? 'bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] hover:from-[#FFD700] hover:to-[#FFA500]'
-                      : 'bg-gray-600 text-gray-300 cursor-not-allowed opacity-60'
-                  }`}
-                >
-                  {user?.subscription_tier === 'paid'
-                    ? 'Manage Subscription'
-                    : 'Coming Soon'}
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteAccount}
+                    className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 transition-colors"
+                  >
+                    Delete Account
+                  </button>
+                </div>
               </div>
             </div>
           </div>
