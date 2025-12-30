@@ -4,8 +4,5 @@
       "path": "/api/cron/send-digests",
       "schedule": "30 13 * * *"
     }
-  ],
-  "env": {
-    "CRON_SECRET": "@cron_secret"
-  }
+  ]
 }
