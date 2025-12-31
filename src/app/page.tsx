@@ -84,6 +84,26 @@ export default function LandingPage() {
 
   useEffect(() => {
     checkUserStatus();
+
+    // Listen to auth state changes to update UI immediately on sign out
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        // User signed out - clear state immediately
+        setUser(null);
+        setTopics([]);
+        setEmail('');
+        setIsCheckingUser(false);
+      } else {
+        // User signed in - reload user data
+        checkUserStatus();
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const checkUserStatus = async () => {
@@ -123,10 +143,24 @@ export default function LandingPage() {
             router.push('/topics');
             return;
           }
+        } else {
+          // No user data found - clear state
+          setUser(null);
+          setTopics([]);
+          setEmail('');
         }
+      } else {
+        // No session - clear state
+        setUser(null);
+        setTopics([]);
+        setEmail('');
       }
     } catch (error) {
       console.error('Error checking user status:', error);
+      // On error, clear state to show login form
+      setUser(null);
+      setTopics([]);
+      setEmail('');
     } finally {
       setIsCheckingUser(false);
     }
@@ -146,15 +180,28 @@ export default function LandingPage() {
     setMessage('');
 
     try {
-      // Use environment variable if available, otherwise fall back to current origin
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      // Get the correct app URL - prioritize environment variable, but ensure it's not localhost in production
+      let appUrl = process.env.NEXT_PUBLIC_APP_URL;
+      
+      // If no env var or it's localhost, use current origin (which will be correct in production)
+      if (!appUrl || appUrl.includes('localhost')) {
+        appUrl = window.location.origin;
+      }
+      
+      // Ensure we're not using localhost in production
+      if (appUrl.includes('localhost') && window.location.hostname !== 'localhost') {
+        // In production, force use of the actual hostname
+        appUrl = `https://${window.location.hostname}`;
+      }
+      
+      console.log('🔗 Using app URL for magic link:', appUrl);
       
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          // Point to API route for server-side code exchange first
-          // The API route will handle PKCE exchange or redirect to client-side for OTP verification
-          emailRedirectTo: `${appUrl}/api/auth/callback`,
+          // Point to client-side callback page
+          // Magic links use PKCE and require client-side handling to access code_verifier
+          emailRedirectTo: `${appUrl}/auth/callback`,
           shouldCreateUser: true,
         },
       });
@@ -463,7 +510,7 @@ export default function LandingPage() {
                 className="mt-16 md:mt-24 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto"
               >
                 {[
-                  { value: '8:30 AM', label: 'Daily Delivery' },
+                  { value: '8:30 AM EST', label: 'Daily Delivery' },
                   { value: '5', label: 'Topics Free' },
                   { value: '60s', label: 'Read Time' },
                   { value: 'AI', label: 'Powered' },
