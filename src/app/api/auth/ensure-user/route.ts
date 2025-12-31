@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
           id: userId,
           email: email,
           subscription_tier: 'free',
-        },
+        } as never,
         {
           onConflict: 'id',
         }
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
           delivery_time: '08:00:00-05:00',
           timezone: 'America/New_York',
           paused: false,
-        },
+        } as never,
         {
           onConflict: 'user_id',
         }

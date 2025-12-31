@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
-export default function AuthCallback() {
+function AuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -181,7 +181,7 @@ export default function AuthCallback() {
             if (verifyError) {
               console.error('❌ OTP verification error:', verifyError);
               console.error('  Error message:', verifyError.message);
-              console.error('  Error status:', verifyError.status);
+              console.error('  Error status:', (verifyError as any).status);
               router.push(
                 `/auth/auth-code-error?error=${encodeURIComponent(verifyError.message || 'authentication_failed')}`
               );
@@ -231,7 +231,7 @@ export default function AuthCallback() {
                   console.log(`  ❌ OTP verification with token_hash failed for ${otpType}:`, verifyError.message);
                   console.log(`  Full error object:`, {
                     message: verifyError.message,
-                    status: verifyError.status,
+                    status: (verifyError as any).status,
                     name: verifyError.name,
                     code: (verifyError as any).code,
                   });
@@ -307,7 +307,7 @@ export default function AuthCallback() {
                   if (exchangeError) {
                     console.error('❌ PKCE exchange failed (expected for email OTP):', exchangeError);
                     console.error('  Error message:', exchangeError.message);
-                    console.error('  Error status:', exchangeError.status);
+                    console.error('  Error status:', (exchangeError as any).status);
                     console.error('  This error is expected for email OTP codes - they should use verifyOtp, not exchangeCodeForSession');
                     
                     // Provide more helpful error message
@@ -443,5 +443,24 @@ export default function AuthCallback() {
         <p className="text-gray-600 text-sm">Completing authentication...</p>
       </div>
     </div>
+  );
+}
+
+function AuthCallbackFallback() {
+  return (
+    <div className="min-h-screen bg-[#fafafa] flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin mx-auto mb-4"></div>
+        <p className="text-gray-600 text-sm">Loading...</p>
+      </div>
+    </div>
+  );
+}
+
+export default function AuthCallback() {
+  return (
+    <Suspense fallback={<AuthCallbackFallback />}>
+      <AuthCallbackContent />
+    </Suspense>
   );
 }

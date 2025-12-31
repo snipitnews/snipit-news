@@ -55,15 +55,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Get user's subscription tier
-    interface UserSubscription {
-      subscription_tier: 'free' | 'paid';
-    }
-
-    const { data: user, error: userError } = (await getSupabaseAdmin()
+    const { data: user, error: userError } = await getSupabaseAdmin()
       .from('users')
       .select('subscription_tier')
       .eq('id', userId)
-      .single()) as { data: UserSubscription | null; error: unknown };
+      .single<{ subscription_tier: string }>();
 
     if (userError) {
       const errorMessage =
@@ -96,7 +92,7 @@ export async function POST(request: NextRequest) {
         topic_name: topicName.trim(),
       } as never)
       .select()
-      .single();
+      .single<{ id: string; user_id: string; topic_name: string }>();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

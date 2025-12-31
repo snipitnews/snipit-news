@@ -1,20 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 
 export async function GET(request: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    
     // Check if user is authenticated
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          get(name: string) {
-            return request.cookies.get(name)?.value;
+          getAll() {
+            return cookieStore.getAll();
           },
-          set() {},
-          remove() {},
+          setAll() {
+            // No-op for read-only auth operations
+          },
         },
       }
     );
@@ -34,7 +38,7 @@ export async function GET(request: NextRequest) {
       .from('users')
       .select('role')
       .eq('id', user.id)
-      .single();
+      .single<{ role: string }>();
 
     if (userError || !userData || userData.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

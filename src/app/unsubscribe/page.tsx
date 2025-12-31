@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
-export default function UnsubscribePage() {
+function UnsubscribePageContent() {
   const [email, setEmail] = useState('');
   const [isUnsubscribing, setIsUnsubscribing] = useState(false);
   const [message, setMessage] = useState('');
@@ -139,5 +139,26 @@ export default function UnsubscribePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function UnsubscribePageFallback() {
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600 text-sm">Loading...</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function UnsubscribePage() {
+  return (
+    <Suspense fallback={<UnsubscribePageFallback />}>
+      <UnsubscribePageContent />
+    </Suspense>
   );
 }

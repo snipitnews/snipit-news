@@ -1,25 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { cookies } from 'next/headers';
 
 export async function POST(request: NextRequest) {
   try {
+    const cookieStore = await cookies();
+    
     // Create a server client with cookie handling
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          get(name: string) {
-            return request.cookies.get(name)?.value;
+          getAll() {
+            return cookieStore.getAll();
           },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          set() {
-            // No-op for this route
-          },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          remove() {
-            // No-op for this route
+          setAll() {
+            // No-op for read-only auth operations
           },
         },
       }

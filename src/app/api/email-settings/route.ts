@@ -1,23 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { cookies } from 'next/headers';
 
 export async function GET(request: NextRequest) {
   try {
-    // Create a server client with cookie handling (simplified for read-only operations)
+    const cookieStore = await cookies();
+    
+    // Create a server client with cookie handling
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          get(name: string) {
-            return request.cookies.get(name)?.value;
+          getAll() {
+            return cookieStore.getAll();
           },
-          set() {
-            // No-op for read-only operations
-          },
-          remove() {
-            // No-op for read-only operations
+          setAll() {
+            // No-op for read-only operations in GET requests
           },
         },
       }
@@ -40,11 +40,19 @@ export async function GET(request: NextRequest) {
 
     console.log('Fetching email settings for user:', user.id);
 
+    type EmailSettings = {
+      user_id: string;
+      delivery_time: string;
+      timezone: string;
+      paused: boolean;
+      updated_at?: string;
+    };
+
     const { data, error } = await getSupabaseAdmin()
       .from('user_email_settings')
       .select('*')
       .eq('user_id', user.id)
-      .single();
+      .single<EmailSettings>();
 
     if (error && error.code !== 'PGRST116') {
       // PGRST116 is "not found" - we'll create default settings
@@ -63,9 +71,9 @@ export async function GET(request: NextRequest) {
           delivery_time: '08:30:00-05:00',
           timezone: 'America/New_York',
           paused: false,
-        })
+        } as never)
         .select()
-        .single();
+        .single<EmailSettings>();
 
       if (createError) {
         console.error('Error creating email settings:', createError);
@@ -92,20 +100,19 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    // Create a server client with cookie handling (simplified for read-only auth)
+    const cookieStore = await cookies();
+    
+    // Create a server client with cookie handling
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          get(name: string) {
-            return request.cookies.get(name)?.value;
+          getAll() {
+            return cookieStore.getAll();
           },
-          set() {
-            // No-op for read-only auth operations
-          },
-          remove() {
-            // No-op for read-only auth operations
+          setAll() {
+            // No-op for read-only auth operations in PUT requests
           },
         },
       }
@@ -134,7 +141,7 @@ export async function PUT(request: NextRequest) {
           timezone: 'America/New_York',
           paused: paused !== undefined ? paused : false,
           updated_at: new Date().toISOString(),
-        },
+        } as never,
         {
           onConflict: 'user_id',
         }

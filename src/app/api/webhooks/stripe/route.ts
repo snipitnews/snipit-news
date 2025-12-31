@@ -17,11 +17,16 @@ export async function POST(request: NextRequest) {
     event = stripe.webhooks.constructEvent(
       body,
       signature,
-      process.env.STRIPE_WEBHOOK_SECRET!
+      process.env.STRIPE_WEBHOOK_SECRET!,
+      300 // tolerance in seconds (default: 300)
     );
   } catch (err) {
-    console.error('Webhook signature verification failed:', err);
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Webhook signature verification failed:', errorMessage);
+    return NextResponse.json(
+      { error: `Webhook Error: ${errorMessage}` },
+      { status: 400 }
+    );
   }
 
   try {
@@ -38,7 +43,7 @@ export async function POST(request: NextRequest) {
         // Update user to paid tier
         const { error: userError } = await getSupabaseAdmin()
           .from('users')
-          .update({ subscription_tier: 'paid' })
+          .update({ subscription_tier: 'paid' } as never)
           .eq('id', userId);
 
         if (userError) {
@@ -58,7 +63,7 @@ export async function POST(request: NextRequest) {
           .from('users')
           .select('id')
           .eq('stripe_customer_id', customerId)
-          .single();
+          .single<{ id: string }>();
 
         if (userError || !user) {
           console.error('Error finding user by customer ID:', userError);
@@ -66,6 +71,8 @@ export async function POST(request: NextRequest) {
         }
 
         // Update or create subscription metadata
+        // Type assertion needed because Stripe types may not include all properties
+        const subscriptionData = subscription as Stripe.Subscription & { current_period_end?: number };
         const { error: subError } = await getSupabaseAdmin()
           .from('subscription_metadata')
           .upsert(
@@ -73,10 +80,10 @@ export async function POST(request: NextRequest) {
               user_id: user.id,
               stripe_subscription_id: subscription.id,
               status: subscription.status,
-              current_period_end: new Date(
-                subscription.current_period_end * 1000
-              ).toISOString(),
-            },
+              current_period_end: subscriptionData.current_period_end
+                ? new Date(subscriptionData.current_period_end * 1000).toISOString()
+                : new Date().toISOString(),
+            } as never,
             {
               onConflict: 'stripe_subscription_id',
             }
@@ -90,7 +97,7 @@ export async function POST(request: NextRequest) {
         const isActive = subscription.status === 'active';
         const { error: tierError } = await getSupabaseAdmin()
           .from('users')
-          .update({ subscription_tier: isActive ? 'paid' : 'free' })
+          .update({ subscription_tier: isActive ? 'paid' : 'free' } as never)
           .eq('id', user.id);
 
         if (tierError) {
@@ -109,7 +116,7 @@ export async function POST(request: NextRequest) {
           .from('users')
           .select('id')
           .eq('stripe_customer_id', customerId)
-          .single();
+          .single<{ id: string }>();
 
         if (userError || !user) {
           console.error('Error finding user by customer ID:', userError);
@@ -121,7 +128,7 @@ export async function POST(request: NextRequest) {
           .from('subscription_metadata')
           .update({
             status: 'canceled',
-          })
+          } as never)
           .eq('stripe_subscription_id', subscription.id);
 
         if (subError) {
@@ -131,7 +138,7 @@ export async function POST(request: NextRequest) {
         // Downgrade user to free tier
         const { error: tierError } = await getSupabaseAdmin()
           .from('users')
-          .update({ subscription_tier: 'free' })
+          .update({ subscription_tier: 'free' } as never)
           .eq('id', user.id);
 
         if (tierError) {

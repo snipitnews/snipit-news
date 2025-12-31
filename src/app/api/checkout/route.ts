@@ -33,7 +33,7 @@ export async function POST_OLD(request: NextRequest) {
       .from('users')
       .select('stripe_customer_id')
       .eq('id', userId)
-      .single();
+      .single<{ stripe_customer_id: string | null }>();
 
     if (userError) {
       return NextResponse.json({ error: userError.message }, { status: 500 });
@@ -54,7 +54,7 @@ export async function POST_OLD(request: NextRequest) {
       // Update user with Stripe customer ID
       const { error: updateError } = await getSupabaseAdmin()
         .from('users')
-        .update({ stripe_customer_id: customerId })
+        .update({ stripe_customer_id: customerId } as never)
         .eq('id', userId);
 
       if (updateError) {

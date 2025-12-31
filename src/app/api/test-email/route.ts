@@ -4,11 +4,11 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 import { fetchNewsForMultipleTopics } from '@/lib/newsapi';
 import { summarizeNews } from '@/lib/openai';
 import { sendNewsDigest } from '@/lib/email';
+import { cookies } from 'next/headers';
 
 export async function POST(request: NextRequest) {
   try {
-    // Create a response object for setting cookies
-    let response = NextResponse.next();
+    const cookieStore = await cookies();
     
     // Create a server client with cookie handling
     const supabase = createServerClient(
@@ -16,42 +16,11 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
-          get(name: string) {
-            return request.cookies.get(name)?.value;
+          getAll() {
+            return cookieStore.getAll();
           },
-          set(name: string, value: string, options: any) {
-            request.cookies.set({
-              name,
-              value,
-              ...options,
-            });
-            response = NextResponse.next({
-              request: {
-                headers: request.headers,
-              },
-            });
-            response.cookies.set({
-              name,
-              value,
-              ...options,
-            });
-          },
-          remove(name: string, options: any) {
-            request.cookies.set({
-              name,
-              value: '',
-              ...options,
-            });
-            response = NextResponse.next({
-              request: {
-                headers: request.headers,
-              },
-            });
-            response.cookies.set({
-              name,
-              value: '',
-              ...options,
-            });
+          setAll() {
+            // No-op for read-only auth operations
           },
         },
       }
@@ -72,7 +41,7 @@ export async function POST(request: NextRequest) {
       .from('users')
       .select('*')
       .eq('id', user.id)
-      .single();
+      .single<{ role: string; [key: string]: any }>();
 
     if (userError || !userData) {
       return NextResponse.json(
@@ -102,7 +71,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const topics = topicsData.map((t) => t.topic_name);
+    const topics = (topicsData as { topic_name: string }[]).map((t) => t.topic_name);
     console.log(`[Test Email] Testing for user ${userData.email} with topics: ${topics.join(', ')}`);
 
     // Fetch news for all topics

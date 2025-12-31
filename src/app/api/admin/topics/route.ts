@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       .from('users')
       .select('role')
       .eq('id', user.id)
-      .single();
+      .single<{ role: string }>();
 
     if (!userData || userData.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -54,15 +54,24 @@ export async function GET(request: NextRequest) {
     }
 
     // Group by main category
-    const groupedTopics: Record<string, typeof topics> = {};
-    topics?.forEach((topic) => {
+    type Topic = {
+      id: string;
+      name: string;
+      main_category: string;
+      is_active: boolean;
+      created_at?: string;
+    };
+    
+    const typedTopics = (topics || []) as Topic[];
+    const groupedTopics: Record<string, Topic[]> = {};
+    typedTopics.forEach((topic) => {
       if (!groupedTopics[topic.main_category]) {
         groupedTopics[topic.main_category] = [];
       }
       groupedTopics[topic.main_category].push(topic);
     });
 
-    return NextResponse.json({ topics, groupedTopics });
+    return NextResponse.json({ topics: typedTopics, groupedTopics });
   } catch (error) {
     console.error('Error fetching topics:', error);
     return NextResponse.json(
@@ -105,7 +114,7 @@ export async function POST(request: NextRequest) {
       .from('users')
       .select('role')
       .eq('id', user.id)
-      .single();
+      .single<{ role: string }>();
 
     if (!userData || userData.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -121,6 +130,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert new topic
+    type Topic = {
+      id: string;
+      name: string;
+      main_category: string;
+      is_active: boolean;
+      created_at?: string;
+    };
+
     const { data, error } = await getSupabaseAdmin()
       .from('topics')
       .insert({
@@ -129,7 +146,7 @@ export async function POST(request: NextRequest) {
         is_active: true,
       } as never)
       .select()
-      .single();
+      .single<Topic>();
 
     if (error) {
       if (error.message.includes('unique constraint')) {
@@ -184,7 +201,7 @@ export async function PUT(request: NextRequest) {
       .from('users')
       .select('role')
       .eq('id', user.id)
-      .single();
+      .single<{ role: string }>();
 
     if (!userData || userData.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -199,12 +216,20 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    type Topic = {
+      id: string;
+      name: string;
+      main_category: string;
+      is_active: boolean;
+      created_at?: string;
+    };
+
     const { data, error } = await getSupabaseAdmin()
       .from('topics')
       .update({ name: name.trim() } as never)
       .eq('id', id)
       .select()
-      .single();
+      .single<Topic>();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -253,7 +278,7 @@ export async function DELETE(request: NextRequest) {
       .from('users')
       .select('role')
       .eq('id', user.id)
-      .single();
+      .single<{ role: string }>();
 
     if (!userData || userData.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

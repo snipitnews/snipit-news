@@ -5,7 +5,7 @@ import { cookies } from 'next/headers';
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
     const cookieStore = await cookies();
@@ -38,14 +38,14 @@ export async function PUT(
       .from('users')
       .select('role')
       .eq('id', user.id)
-      .single();
+      .single<{ role: string }>();
 
     if (!adminUser || adminUser.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const { role } = await request.json();
-    const { userId } = params;
+    const { userId } = await params;
 
     if (!role || !['user', 'admin'].includes(role)) {
       return NextResponse.json(
@@ -60,7 +60,7 @@ export async function PUT(
       .update({ role } as never)
       .eq('id', userId)
       .select()
-      .single();
+      .single<{ id: string; email: string; role: string; subscription_tier: string }>();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
