@@ -464,7 +464,7 @@ export default function LandingPage() {
               >
                 {[
                   { value: '8:30 AM', label: 'Daily Delivery' },
-                  { value: '5+', label: 'Topics Free' },
+                  { value: '5', label: 'Topics Free' },
                   { value: '60s', label: 'Read Time' },
                   { value: 'AI', label: 'Powered' },
                 ].map((stat, i) => (
