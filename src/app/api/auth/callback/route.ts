@@ -78,30 +78,45 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // For code parameter - try server-side exchange first (for PKCE flows)
-      // If that fails, redirect to client-side for OTP verification
+      // For code parameter - verify with verifyOtp (for email magic links)
+      // Email magic links send a code that must be verified with verifyOtp, NOT exchangeCodeForSession
+      // exchangeCodeForSession requires PKCE (code verifier) which email magic links don't have
       if (code) {
-        console.log('🔐 Code parameter detected - attempting server-side exchange');
+        console.log('🔐 Code parameter detected - attempting OTP verification (email magic link)');
         console.log('  Code length:', code.length);
         console.log('  Code preview:', code.substring(0, 50));
 
-        // Try exchangeCodeForSession first (for PKCE/OAuth flows)
-        const { data: exchangeData, error: exchangeError } =
-          await supabase.auth.exchangeCodeForSession(code);
+        // For email magic links, the code should be verified with verifyOtp
+        // Try both magiclink and email types
+        const otpTypes: Array<'email' | 'magiclink'> = ['magiclink', 'email'];
+        let verified = false;
 
-        if (!exchangeError && exchangeData?.user && exchangeData?.session) {
-          console.log('✅ Code exchange successful on server side (PKCE/OAuth flow)');
-          // Redirect to client-side callback to complete the flow
-          return NextResponse.redirect(`${origin}/auth/callback?success=true`);
+        for (const otpType of otpTypes) {
+          console.log(`  Trying verifyOtp as type: ${otpType}...`);
+          const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+            token: code,
+            type: otpType,
+          } as any);
+
+          if (!verifyError && verifyData?.user && verifyData?.session) {
+            console.log(`✅ OTP verification successful as ${otpType}`);
+            console.log('  User ID:', verifyData.user.id);
+            // Redirect to client-side callback to complete the flow
+            return NextResponse.redirect(`${origin}/auth/callback?success=true`);
+          } else if (verifyError) {
+            console.log(`  ❌ OTP verification failed for ${otpType}:`, verifyError.message);
+          }
         }
 
-        // If exchangeCodeForSession fails, this is likely an email OTP code
-        // Redirect to client-side callback for OTP verification
-        if (exchangeError) {
-          console.log('⚠️ Code exchange failed (likely email OTP):', exchangeError.message);
-          console.log('  Redirecting to client-side callback for OTP verification');
+        // If all OTP verification attempts failed, the code is invalid or expired
+        if (!verified) {
+          console.error('❌ All OTP verification attempts failed');
+          console.error('  This code is not a valid OTP token for email magic links');
+          console.error('  Note: We do NOT try exchangeCodeForSession for email magic links');
+          console.error('  because they don\'t use PKCE and will always fail with "code verifier" error');
+          
           return NextResponse.redirect(
-            `${origin}/auth/callback?code=${encodeURIComponent(code)}${type ? `&type=${encodeURIComponent(type)}` : ''}`
+            `${origin}/auth/auth-code-error?error=${encodeURIComponent('authentication_failed')}&details=${encodeURIComponent('Unable to verify the authentication code. This may be due to an expired or invalid link. Please request a new magic link.')}`
           );
         }
       }
