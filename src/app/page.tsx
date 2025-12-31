@@ -146,8 +146,21 @@ export default function LandingPage() {
     setMessage('');
 
     try {
-      // Use environment variable if available, otherwise fall back to current origin
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      // Get the correct app URL - prioritize environment variable, but ensure it's not localhost in production
+      let appUrl = process.env.NEXT_PUBLIC_APP_URL;
+      
+      // If no env var or it's localhost, use current origin (which will be correct in production)
+      if (!appUrl || appUrl.includes('localhost')) {
+        appUrl = window.location.origin;
+      }
+      
+      // Ensure we're not using localhost in production
+      if (appUrl.includes('localhost') && window.location.hostname !== 'localhost') {
+        // In production, force use of the actual hostname
+        appUrl = `https://${window.location.hostname}`;
+      }
+      
+      console.log('🔗 Using app URL for magic link:', appUrl);
       
       const { error } = await supabase.auth.signInWithOtp({
         email,
@@ -463,8 +476,8 @@ export default function LandingPage() {
                 className="mt-16 md:mt-24 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto"
               >
                 {[
-                  { value: '8:30 AM', label: 'Daily Delivery' },
-                  { value: '5+', label: 'Topics Free' },
+                  { value: '8:30 AM EST', label: 'Daily Delivery' },
+                  { value: '5', label: 'Topics Free' },
                   { value: '60s', label: 'Read Time' },
                   { value: 'AI', label: 'Powered' },
                 ].map((stat, i) => (
