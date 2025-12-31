@@ -146,13 +146,15 @@ export default function LandingPage() {
     setMessage('');
 
     try {
+      // Use environment variable if available, otherwise fall back to current origin
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
           // Point to API route for server-side code exchange first
           // The API route will handle PKCE exchange or redirect to client-side for OTP verification
-          // Make sure your Supabase dashboard redirect URL includes: http://localhost:3000/api/auth/callback
-          emailRedirectTo: `${window.location.origin}/api/auth/callback`,
+          emailRedirectTo: `${appUrl}/api/auth/callback`,
           shouldCreateUser: true,
         },
       });
