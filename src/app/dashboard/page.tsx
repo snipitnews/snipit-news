@@ -213,7 +213,7 @@ export default function Dashboard() {
         },
         credentials: 'include',
         body: JSON.stringify({
-          // Delivery time and timezone are fixed globally (8:30 AM EST)
+          // Delivery time is fixed globally to 8:30 AM (in user's timezone)
           paused: isPaused,
         }),
       });
@@ -244,7 +244,7 @@ export default function Dashboard() {
         },
         credentials: 'include',
         body: JSON.stringify({
-          // Delivery time and timezone are fixed globally (8:30 AM EST)
+          // Delivery time is fixed globally to 8:30 AM (in user's timezone)
           paused: newPausedState,
         }),
       });
@@ -287,35 +287,6 @@ export default function Dashboard() {
     }
   };
 
-  const handleTestEmail = async () => {
-    if (!confirm('Send a test email digest to your email address?')) return;
-
-    try {
-      const response = await fetch('/api/test-email', {
-        method: 'POST',
-        credentials: 'include',
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        alert(
-          `✅ ${data.message}\n\nTopics: ${data.topics.join(
-            ', '
-          )}\nSummaries: ${data.summariesCount}`
-        );
-        // Reload archive to show the new email
-        if (activeTab === 'archive') {
-          loadArchive();
-        }
-      } else {
-        alert(`❌ Error: ${data.error}\n\n${data.details || ''}`);
-      }
-    } catch (error) {
-      console.error('Error sending test email:', error);
-      alert('Error sending test email. Please check the console for details.');
-    }
-  };
 
   const handleDeleteAccount = async () => {
     if (
@@ -392,8 +363,8 @@ export default function Dashboard() {
 
   // Format delivery time for display
   const formatDeliveryTime = () => {
-    // Delivery time is fixed globally to 8:30 AM EST
-    return '8:30 AM EST';
+    // Delivery time is fixed globally to 8:30 AM (in user's timezone)
+    return '8:30 AM';
   };
 
   return (
@@ -602,31 +573,10 @@ export default function Dashboard() {
                   Delivery Time
                 </h3>
                 <p className="text-sm text-gray-400">
-                  Your daily digest is sent at <strong className="text-white">8:30 AM EST</strong> every day. This time is fixed and cannot be changed.
+                  Your daily digest is sent at <strong className="text-white">8:30 AM</strong> every day in your local timezone. This time is fixed and cannot be changed.
                 </p>
               </div>
 
-              {/* Test Email - Admin only */}
-              {user?.role === 'admin' && (
-                <div className="p-6 bg-[#1a1a1a] border border-[#FFA500]/20 mb-6">
-                  <h3 className="font-medium text-white mb-2">Test Email (Admin Only)</h3>
-                  <p className="text-sm text-gray-400 mb-4">
-                    Send a test email digest with your current topics to preview how it looks.
-                  </p>
-                  <button
-                    onClick={handleTestEmail}
-                    disabled={topics.length === 0}
-                    className="px-4 py-2 bg-gradient-to-r from-[#FFA500] to-[#FF6B47] text-[#1a1a1a] font-medium hover:from-[#FFD700] hover:to-[#FFA500] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                  >
-                    Send Test Email
-                  </button>
-                  {topics.length === 0 && (
-                    <p className="text-xs text-gray-500 mt-2">
-                      Add topics first to test the email
-                    </p>
-                  )}
-                </div>
-              )}
 
               {/* Subscription & Account Management */}
               <div className="p-6 bg-[#1a1a1a] border border-[#FFA500]/20 space-y-6">
