@@ -840,7 +840,7 @@ export default function AdminPortal() {
                         <td className="py-4 px-4 text-center text-sm text-gray-400">
                           <span className="inline-flex items-center space-x-1">
                             <Clock className="w-3 h-3" />
-                            <span>{(log.execution_time_ms / 1000).toFixed(1)}s</span>
+                            <span>{log.execution_time_ms ? ((log.execution_time_ms / 1000).toFixed(1) + 's') : 'N/A'}</span>
                           </span>
                         </td>
                         <td className="py-4 px-4 text-sm text-gray-400">
