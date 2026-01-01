@@ -1,21 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { fetchNewsForMultipleTopics } from '@/lib/newsapi';
 import { summarizeNews } from '@/lib/openai';
 import { sendNewsDigest } from '@/lib/email';
 
-export async function GET(request: NextRequest) {
-  // Verify this is a legitimate cron request
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const startTime = Date.now();
-  const supabase = getSupabaseAdmin();
-
+export async function POST(request: NextRequest) {
   try {
-    console.log('Starting daily digest process...');
+    // Verify admin access
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll() {
+            // No-op for read-only auth operations
+          },
+        },
+      }
+    );
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check if user is admin
+    const { data: userData, error: userError } = await getSupabaseAdmin()
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single<{ role: string }>();
+
+    if (userError || userData?.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    }
+
+    const startTime = Date.now();
+    console.log('🚨 FORCE SENDING EMAILS TO ALL USERS (Admin triggered)');
 
     // Define types for the query result
     interface UserTopic {
@@ -82,7 +113,7 @@ export async function GET(request: NextRequest) {
       errors: [] as string[],
     };
 
-    // Process each user
+    // Process each user (skip timezone check for force send)
     for (const user of users) {
       try {
         results.processed++;
@@ -97,31 +128,6 @@ export async function GET(request: NextRequest) {
 
         if (!user.user_topics || user.user_topics.length === 0) {
           console.log(`User ${user.email} has no topics, skipping`);
-          results.skipped++;
-          continue;
-        }
-
-        // Check if it's 8:30 AM in the user's timezone
-        const userTimezone = emailSettings?.timezone || 'America/New_York';
-        const now = new Date();
-        
-        // Get current time in user's timezone using Intl.DateTimeFormat
-        const formatter = new Intl.DateTimeFormat('en-US', {
-          timeZone: userTimezone,
-          hour: 'numeric',
-          minute: 'numeric',
-          hour12: false,
-        });
-        
-        const parts = formatter.formatToParts(now);
-        const userHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
-        const userMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
-        
-        // Only send if it's 8:30 AM (within a 5-minute window to account for cron timing)
-        const isDeliveryTime = userHour === 8 && userMinute >= 25 && userMinute <= 35;
-        
-        if (!isDeliveryTime) {
-          console.log(`User ${user.email} (${userTimezone}): Current time is ${userHour}:${userMinute.toString().padStart(2, '0')}, skipping (not 8:30 AM)`);
           results.skipped++;
           continue;
         }
@@ -204,7 +210,7 @@ export async function GET(request: NextRequest) {
 
     // Log execution results to database
     try {
-      await supabase.from('cron_job_logs').insert({
+      await getSupabaseAdmin().from('cron_job_logs').insert({
         status,
         processed_count: results.processed,
         successful_count: results.successful,
@@ -212,49 +218,27 @@ export async function GET(request: NextRequest) {
         skipped_count: results.skipped,
         errors: results.errors,
         execution_time_ms: executionTime,
+        execution_date: new Date().toISOString(),
       } as never);
     } catch (logError) {
-      console.error('Failed to log cron job execution:', logError);
-      // Don't fail the request if logging fails
+      console.error('Failed to log force send execution:', logError);
     }
 
-    console.log('Daily digest process completed:', results);
+    console.log('Force send process completed:', results);
     return NextResponse.json({
-      message: 'Daily digest process completed',
+      message: 'Force send process completed',
       results,
       executionTimeMs: executionTime,
     });
   } catch (error) {
-    const executionTime = Date.now() - startTime;
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    
-    // Log failure to database
-    try {
-      await supabase.from('cron_job_logs').insert({
-        status: 'failed',
-        processed_count: 0,
-        successful_count: 0,
-        failed_count: 0,
-        skipped_count: 0,
-        errors: [errorMessage],
-        execution_time_ms: executionTime,
-      } as never);
-    } catch (logError) {
-      console.error('Failed to log cron job failure:', logError);
-    }
-
-    console.error('Error in daily digest process:', error);
+    console.error('Error in force send process:', error);
     return NextResponse.json(
       {
-        error: 'Daily digest process failed',
-        details: errorMessage,
+        error: 'Force send process failed',
+        details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     );
   }
 }
 
-// Also support POST for manual triggering
-export async function POST(request: NextRequest) {
-  return GET(request);
-}

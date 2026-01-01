@@ -30,20 +30,24 @@ export default function AuthCallback() {
         return;
       }
 
-      // Ensure user record exists
-      try {
-        await fetch('/api/auth/ensure-user', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            userId: session.user.id,
-            email: session.user.email,
-          }),
-        });
-      } catch (userError) {
-        console.error('Error ensuring user record:', userError);
-      }
+            // Ensure user record exists with timezone detection
+            try {
+              // Detect user's timezone from browser
+              const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              
+              await fetch('/api/auth/ensure-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  userId: session.user.id,
+                  email: session.user.email,
+                  timezone: userTimezone,
+                }),
+              });
+            } catch (userError) {
+              console.error('Error ensuring user record:', userError);
+            }
 
       // Check if user already has topics
       const { data: existingTopics } = await supabase

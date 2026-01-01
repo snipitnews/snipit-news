@@ -4,164 +4,207 @@ import { getSourcesForTopic } from './newsSources';
 const NEWS_API_KEY = process.env.NEWS_API_KEY;
 const NEWS_API_BASE_URL = 'https://newsapi.org/v2';
 
-export async function fetchNewsForTopic(topic: string): Promise<NewsArticle[]> {
+async function fetchNewsForTopicWithTimeWindow(
+  topic: string,
+  daysBack: number
+): Promise<NewsArticle[]> {
   if (!NEWS_API_KEY) {
     throw new Error('NEWS_API_KEY is not configured');
   }
 
-  try {
-    // Calculate date for last 24 hours
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const fromDate = yesterday.toISOString().split('T')[0];
+  // Calculate date for specified days back
+  const fromDate = new Date();
+  fromDate.setDate(fromDate.getDate() - daysBack);
+  const fromDateStr = fromDate.toISOString().split('T')[0];
 
-    // Get topic-specific sources
-    const sources = getSourcesForTopic(topic);
-    console.log(`Using sources for topic "${topic}":`, sources);
+  // Get topic-specific sources
+  const sources = getSourcesForTopic(topic);
 
-    const response = await fetch(
-      `${NEWS_API_BASE_URL}/everything?` +
-        `q=${encodeURIComponent(topic)}&` +
-        `from=${fromDate}&` +
-        `sortBy=publishedAt&` +
-        `language=en&` +
-        `pageSize=20&` +
-        `apiKey=${NEWS_API_KEY}`
-    );
+  const response = await fetch(
+    `${NEWS_API_BASE_URL}/everything?` +
+      `q=${encodeURIComponent(topic)}&` +
+      `from=${fromDateStr}&` +
+      `sortBy=publishedAt&` +
+      `language=en&` +
+      `pageSize=20&` +
+      `apiKey=${NEWS_API_KEY}`
+  );
 
-    if (!response.ok) {
-      // Handle rate limiting (429) and other errors
-      if (response.status === 429) {
-        console.error(`[NewsAPI] Rate limit exceeded for topic "${topic}"`);
-        throw new Error('NewsAPI rate limit exceeded. Please try again later.');
+  if (!response.ok) {
+    if (response.status === 429) {
+      throw new Error('NewsAPI rate limit exceeded');
+    }
+    const errorText = await response.text();
+    throw new Error(`NewsAPI error: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+
+  if (data.status !== 'ok') {
+    throw new Error(`NewsAPI error: ${data.message}`);
+  }
+
+  if (!data.articles || data.articles.length === 0) {
+    return [];
+  }
+
+  // Filter articles by source
+  interface NewsAPIArticle {
+    url?: string;
+    title?: string;
+    description?: string;
+    content?: string;
+    publishedAt?: string;
+    source?: {
+      name?: string;
+    };
+  }
+
+  const filteredArticles = (data.articles as NewsAPIArticle[]).filter(
+    (article) => {
+      if (!article.url) return false;
+      try {
+        const sourceUrl = new URL(article.url).hostname;
+        const isFromSource = sources.some((source) =>
+          sourceUrl.includes(source)
+        );
+        return isFromSource;
+      } catch {
+        return false;
       }
-      const errorText = await response.text();
-      console.error(`[NewsAPI] Error ${response.status} for topic "${topic}":`, errorText);
-      throw new Error(
-        `NewsAPI error: ${response.status} ${response.statusText}`
-      );
     }
+  );
 
-    const data = await response.json();
+  // If no articles from specified sources, use all articles
+  const articlesToUse =
+    filteredArticles.length > 0 ? filteredArticles : data.articles;
 
-    if (data.status !== 'ok') {
-      console.error(`[NewsAPI] API returned error for topic "${topic}":`, data.message);
-      throw new Error(`NewsAPI error: ${data.message}`);
-    }
-
-    if (!data.articles || data.articles.length === 0) {
-      console.log(`No articles found for topic: ${topic}`);
-      return [];
-    }
-
-    console.log(`Found ${data.articles.length} total articles for "${topic}"`);
-
-    // Filter articles by source
-    interface NewsAPIArticle {
-      url?: string;
-      title?: string;
-      description?: string;
-      content?: string;
-      publishedAt?: string;
-      source?: {
-        name?: string;
-      };
-    }
-
-    const filteredArticles = (data.articles as NewsAPIArticle[]).filter(
-      (article) => {
-        if (!article.url) return false;
-        try {
-          const sourceUrl = new URL(article.url).hostname;
-          const isFromSource = sources.some((source) =>
-            sourceUrl.includes(source)
-          );
-          return isFromSource;
-        } catch {
-          return false;
-        }
-      }
-    );
-
-    console.log(
-      `Found ${filteredArticles.length} articles from specified sources for "${topic}"`
-    );
-
-    // If no articles from specified sources, use all articles
-    const articlesToUse =
-      filteredArticles.length > 0 ? filteredArticles : data.articles;
-
-    // Map and filter articles - prioritize content over description for better context
-    const mappedArticles = articlesToUse
-      .map((article: NewsAPIArticle) => {
-        // Use content if available (usually more detailed), otherwise description
-        const textContent = article.content || article.description || '';
-        // Clean up content - remove [Source] tags and extra whitespace
-        const cleanContent = textContent
-          .replace(/\[.*?\]/g, '') // Remove [Source] tags
-          .replace(/\s+/g, ' ') // Normalize whitespace
-          .trim();
-        
-        return {
-          title: article.title || 'No title',
-          description: cleanContent || 'No description',
-          url: article.url || '',
-          publishedAt: article.publishedAt || '',
-          source: {
-            name: article.source?.name || 'Unknown source',
-          },
-        };
-      })
-      .filter(
-        (article: NewsArticle) =>
-          article.title !== 'No title' &&
-          article.url &&
-          article.description !== 'No description' &&
-          article.description.length > 50 // Filter out very short descriptions
-      );
-
-    // Deduplicate articles by title similarity (remove near-duplicates)
-    const deduplicatedArticles: NewsArticle[] = [];
-    const seenTitles = new Set<string>();
-    
-    for (const article of mappedArticles) {
-      // Normalize title for comparison (lowercase, remove special chars)
-      const normalizedTitle = article.title
-        .toLowerCase()
-        .replace(/[^\w\s]/g, '')
+  // Map and filter articles - prioritize content over description for better context
+  const mappedArticles = articlesToUse
+    .map((article: NewsAPIArticle) => {
+      // Use content if available (usually more detailed), otherwise description
+      const textContent = article.content || article.description || '';
+      // Clean up content - remove [Source] tags and extra whitespace
+      const cleanContent = textContent
+        .replace(/\[.*?\]/g, '') // Remove [Source] tags
+        .replace(/\s+/g, ' ') // Normalize whitespace
         .trim();
       
-      // Check if we've seen a similar title (exact match or very similar)
-      let isDuplicate = false;
-      for (const seenTitle of seenTitles) {
-        // Check for exact match or high similarity
-        if (normalizedTitle === seenTitle || 
-            (normalizedTitle.length > 20 && seenTitle.includes(normalizedTitle.substring(0, 20))) ||
-            (seenTitle.length > 20 && normalizedTitle.includes(seenTitle.substring(0, 20)))) {
-          isDuplicate = true;
-          break;
-        }
+      return {
+        title: article.title || 'No title',
+        description: cleanContent || 'No description',
+        url: article.url || '',
+        publishedAt: article.publishedAt || '',
+        source: {
+          name: article.source?.name || 'Unknown source',
+        },
+      };
+    })
+    .filter(
+      (article: NewsArticle) =>
+        article.title !== 'No title' &&
+        article.url &&
+        article.description !== 'No description' &&
+        article.description.length > 50 // Filter out very short descriptions
+    );
+
+  // Deduplicate articles by title similarity (remove near-duplicates)
+  const deduplicatedArticles: NewsArticle[] = [];
+  const seenTitles = new Set<string>();
+  
+  for (const article of mappedArticles) {
+    // Normalize title for comparison (lowercase, remove special chars)
+    const normalizedTitle = article.title
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .trim();
+    
+    // Check if we've seen a similar title (exact match or very similar)
+    let isDuplicate = false;
+    for (const seenTitle of seenTitles) {
+      // Check for exact match or high similarity
+      if (normalizedTitle === seenTitle || 
+          (normalizedTitle.length > 20 && seenTitle.includes(normalizedTitle.substring(0, 20))) ||
+          (seenTitle.length > 20 && normalizedTitle.includes(seenTitle.substring(0, 20)))) {
+        isDuplicate = true;
+        break;
       }
+    }
+    
+    if (!isDuplicate) {
+      seenTitles.add(normalizedTitle);
+      deduplicatedArticles.push(article);
+    }
+  }
+
+  // Sort by recency first (newer articles are more relevant), then by description length
+  const sortedArticles = deduplicatedArticles.sort((a, b) => {
+    // Prioritize by date (newer first)
+    const dateDiff = new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+    if (Math.abs(dateDiff) > 3600000) { // If more than 1 hour difference, prioritize date
+      return dateDiff;
+    }
+    // If similar date, prioritize articles with longer descriptions (more context)
+    return b.description.length - a.description.length;
+  });
+
+  return sortedArticles;
+}
+
+export async function fetchNewsForTopic(topic: string): Promise<NewsArticle[]> {
+  const MIN_ARTICLES_NEEDED = 3; // Need at least 3 articles for good summaries
+  const MAX_DAYS_BACK = 14; // Maximum 2 weeks
+
+  try {
+    // First, try last 24 hours
+    console.log(`[NewsAPI] Fetching news for "${topic}" from last 24 hours...`);
+    let articles = await fetchNewsForTopicWithTimeWindow(topic, 1);
+    
+    console.log(`[NewsAPI] Found ${articles.length} articles from last 24 hours for "${topic}"`);
+
+    // If we don't have enough articles, expand time window progressively
+    if (articles.length < MIN_ARTICLES_NEEDED) {
+      const timeWindows = [3, 7, 14]; // 3 days, 1 week, 2 weeks
       
-      if (!isDuplicate) {
-        seenTitles.add(normalizedTitle);
-        deduplicatedArticles.push(article);
+      for (const days of timeWindows) {
+        if (articles.length >= MIN_ARTICLES_NEEDED) break;
+        if (days > MAX_DAYS_BACK) break;
+        
+        console.log(`[NewsAPI] Only ${articles.length} articles found, expanding to last ${days} days for "${topic}"...`);
+        const expandedArticles = await fetchNewsForTopicWithTimeWindow(topic, days);
+        
+        // Merge with existing articles, prioritizing newer ones
+        const existingUrls = new Set(articles.map(a => a.url));
+        const newArticles = expandedArticles.filter(a => !existingUrls.has(a.url));
+        articles = [...articles, ...newArticles];
+        
+        // Re-sort by recency
+        articles.sort((a, b) => 
+          new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+        );
+        
+        console.log(`[NewsAPI] Found ${articles.length} total articles (including ${newArticles.length} new) from last ${days} days`);
+        
+        // Small delay to respect rate limits
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
     }
 
-    // Sort by description length (longer = more context) and recency
-    const sortedArticles = deduplicatedArticles.sort((a, b) => {
-      // Prioritize articles with longer descriptions (more context)
-      const lengthDiff = b.description.length - a.description.length;
-      if (Math.abs(lengthDiff) > 100) {
-        return lengthDiff;
-      }
-      // If similar length, prioritize by date (newer first)
-      return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
-    });
-
-    // Return top 10 most relevant articles
-    return sortedArticles.slice(0, 10);
+    // Return top 10 most relevant articles (prioritizing latest 3)
+    // Take top 3 latest, then fill with best quality up to 10
+    const latest3 = articles.slice(0, 3);
+    const remaining = articles.slice(3);
+    
+    // Sort remaining by quality (description length)
+    const sortedByQuality = remaining.sort((a, b) => 
+      b.description.length - a.description.length
+    );
+    
+    const finalArticles = [...latest3, ...sortedByQuality.slice(0, 7)];
+    
+    console.log(`[NewsAPI] Returning ${finalArticles.length} articles for "${topic}" (${latest3.length} latest + ${finalArticles.length - latest3.length} best quality)`);
+    
+    return finalArticles.slice(0, 10);
   } catch (error) {
     console.error(`Error fetching news for topic "${topic}":`, error);
     return [];

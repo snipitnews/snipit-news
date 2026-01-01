@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Navigation from '@/components/Navigation';
-import { Plus, X, Edit2, Save, ChevronDown, ChevronUp, Users, BookOpen, Trash2 } from 'lucide-react';
+import { Plus, X, Edit2, Save, ChevronDown, ChevronUp, Users, BookOpen, Trash2, FileText, CheckCircle, XCircle, Clock, Send, AlertTriangle } from 'lucide-react';
 
 interface User {
   id: string;
@@ -28,9 +28,22 @@ interface Topic {
   created_at: string;
 }
 
+interface CronJobLog {
+  id: string;
+  execution_date: string;
+  status: 'success' | 'failed' | 'running';
+  processed_count: number;
+  successful_count: number;
+  failed_count: number;
+  skipped_count: number;
+  errors: string[] | null;
+  execution_time_ms: number | null;
+  created_at: string;
+}
+
 export default function AdminPortal() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'users' | 'topics'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'topics' | 'logs'>('users');
   const [users, setUsers] = useState<User[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [groupedTopics, setGroupedTopics] = useState<Record<string, Topic[]>>({});
@@ -54,6 +67,17 @@ export default function AdminPortal() {
   const [editingTopicName, setEditingTopicName] = useState<string>('');
   const [isSavingTopic, setIsSavingTopic] = useState(false);
 
+  // Cron job logs state
+  const [logs, setLogs] = useState<CronJobLog[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  
+  // Force send emails state
+  const [isForceSending, setIsForceSending] = useState(false);
+  const [showForceSendConfirm, setShowForceSendConfirm] = useState(false);
+  
+  // Test email state
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
+
   useEffect(() => {
     checkAuthAndLoadData();
   }, []);
@@ -61,8 +85,111 @@ export default function AdminPortal() {
   useEffect(() => {
     if (activeTab === 'topics' && isAuthorized) {
       loadTopics();
+    } else if (activeTab === 'logs' && isAuthorized) {
+      loadLogs();
     }
   }, [activeTab, isAuthorized]);
+
+  const loadLogs = async () => {
+    setIsLoadingLogs(true);
+    setError('');
+    try {
+      const { data, error } = await supabase
+        .from('cron_job_logs')
+        .select('*')
+        .order('execution_date', { ascending: false })
+        .limit(100);
+
+      if (error) {
+        console.error('Supabase error loading logs:', error);
+        throw new Error(error.message || 'Failed to load logs');
+      }
+
+      setLogs((data || []).map(log => ({
+        ...log,
+        errors: Array.isArray(log.errors) ? log.errors : (log.errors ? [String(log.errors)] : []),
+        execution_time_ms: log.execution_time_ms ?? 0,
+      })));
+    } catch (error) {
+      console.error('Error loading logs:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load cron job logs';
+      setError(errorMessage);
+      // Also log the full error for debugging
+      if (error && typeof error === 'object') {
+        console.error('Full error details:', JSON.stringify(error, null, 2));
+      }
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
+
+  const handleForceSendEmails = async () => {
+    if (!showForceSendConfirm) {
+      setShowForceSendConfirm(true);
+      return;
+    }
+
+    setIsForceSending(true);
+    setShowForceSendConfirm(false);
+    setError('');
+
+    try {
+      const response = await fetch('/api/admin/force-send-emails', {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to force send emails');
+      }
+
+      alert(`Force send completed!\n\nProcessed: ${data.results.processed}\nSuccessful: ${data.results.successful}\nFailed: ${data.results.failed}\nSkipped: ${data.results.skipped}`);
+      
+      // Reload logs to show the new execution
+      if (activeTab === 'logs') {
+        loadLogs();
+      }
+    } catch (error) {
+      console.error('Error force sending emails:', error);
+      setError(error instanceof Error ? error.message : 'Failed to force send emails');
+    } finally {
+      setIsForceSending(false);
+    }
+  };
+
+  const handleTestEmail = async () => {
+    if (!confirm('Send a test email digest to your email address with your current topics?')) return;
+
+    setIsSendingTestEmail(true);
+    setError('');
+
+    try {
+      const response = await fetch('/api/test-email', {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert(
+          `✅ ${data.message}\n\nTopics: ${data.topics.join(', ')}\nSummaries: ${data.summariesCount}`
+        );
+      } else {
+        setError(data.error || 'Failed to send test email');
+        alert(`❌ Error: ${data.error}\n\n${data.details || ''}`);
+      }
+    } catch (error) {
+      console.error('Error sending test email:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to send test email';
+      setError(errorMessage);
+      alert('Error sending test email. Please check the console for details.');
+    } finally {
+      setIsSendingTestEmail(false);
+    }
+  };
 
   const checkAuthAndLoadData = async () => {
     try {
@@ -427,6 +554,17 @@ export default function AdminPortal() {
             <BookOpen className="w-4 h-4" />
             <span>Topics</span>
           </button>
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`px-6 py-3 font-medium transition-colors flex items-center space-x-2 ${
+              activeTab === 'logs'
+                ? 'text-[#FFA500] border-b-2 border-[#FFA500]'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>Logs</span>
+          </button>
         </div>
 
         {/* Error Message */}
@@ -592,6 +730,142 @@ export default function AdminPortal() {
               </div>
             </div>
           </>
+        )}
+
+        {/* Logs Tab */}
+        {activeTab === 'logs' && (
+          <div className="bg-[#1a1a1a] border border-[#FFA500]/20 rounded-lg p-6">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-medium text-white mb-2">Cron Job Execution Logs</h2>
+                <p className="text-sm text-gray-400">View daily digest email delivery logs</p>
+              </div>
+              <div className="flex items-center space-x-4">
+                {showForceSendConfirm && (
+                  <div className="flex items-center space-x-2 px-4 py-2 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+                    <AlertTriangle className="w-4 h-4 text-yellow-400" />
+                    <span className="text-sm text-yellow-400">Confirm force send?</span>
+                    <button
+                      onClick={handleForceSendEmails}
+                      disabled={isForceSending}
+                      className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-medium rounded transition-colors disabled:opacity-50"
+                    >
+                      Yes, Send Now
+                    </button>
+                    <button
+                      onClick={() => setShowForceSendConfirm(false)}
+                      className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                <button
+                  onClick={handleTestEmail}
+                  disabled={isSendingTestEmail}
+                  className="px-4 py-2 bg-[#FFA500] hover:bg-[#FFD700] text-[#1a1a1a] text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>{isSendingTestEmail ? 'Sending...' : 'Send Test Email to Me'}</span>
+                </button>
+                <button
+                  onClick={handleForceSendEmails}
+                  disabled={isForceSending || showForceSendConfirm}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>{isForceSending ? 'Sending...' : 'Force Send to All Users'}</span>
+                </button>
+              </div>
+            </div>
+
+            {isLoadingLogs ? (
+              <div className="text-center py-12">
+                <div className="w-8 h-8 border-2 border-[#FFA500] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                <p className="text-gray-400">Loading logs...</p>
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="text-center py-12">
+                <FileText className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                <p className="text-gray-400">No logs found</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-[#FFA500]/20">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Date</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Status</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-gray-400">Processed</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-gray-400">Successful</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-gray-400">Failed</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-gray-400">Skipped</th>
+                      <th className="text-center py-3 px-4 text-sm font-medium text-gray-400">Duration</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Errors</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logs.map((log) => (
+                      <tr key={log.id} className="border-b border-[#FFA500]/10 hover:bg-white/5">
+                        <td className="py-4 px-4 text-sm text-white">
+                          {new Date(log.execution_date).toLocaleString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true,
+                          })}
+                        </td>
+                        <td className="py-4 px-4">
+                          <span
+                            className={`inline-flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium ${
+                              log.status === 'success'
+                                ? 'bg-green-900/30 text-green-400 border border-green-500/30'
+                                : 'bg-red-900/30 text-red-400 border border-red-500/30'
+                            }`}
+                          >
+                            {log.status === 'success' ? (
+                              <CheckCircle className="w-3 h-3" />
+                            ) : (
+                              <XCircle className="w-3 h-3" />
+                            )}
+                            <span className="capitalize">{log.status}</span>
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 text-center text-sm text-white">{log.processed_count}</td>
+                        <td className="py-4 px-4 text-center text-sm text-green-400">{log.successful_count}</td>
+                        <td className="py-4 px-4 text-center text-sm text-red-400">{log.failed_count}</td>
+                        <td className="py-4 px-4 text-center text-sm text-gray-400">{log.skipped_count}</td>
+                        <td className="py-4 px-4 text-center text-sm text-gray-400">
+                          <span className="inline-flex items-center space-x-1">
+                            <Clock className="w-3 h-3" />
+                            <span>{log.execution_time_ms ? ((log.execution_time_ms / 1000).toFixed(1) + 's') : 'N/A'}</span>
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 text-sm text-gray-400">
+                          {log.errors && log.errors.length > 0 ? (
+                            <details className="cursor-pointer">
+                              <summary className="text-red-400 hover:text-red-300">
+                                {log.errors.length} error{log.errors.length > 1 ? 's' : ''}
+                              </summary>
+                              <ul className="mt-2 space-y-1 text-xs">
+                                {log.errors.map((error, idx) => (
+                                  <li key={idx} className="text-red-300">• {error}</li>
+                                ))}
+                              </ul>
+                            </details>
+                          ) : (
+                            <span className="text-gray-600">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Topics Tab */}

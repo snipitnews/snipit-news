@@ -190,6 +190,49 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
             ${summaries.map((topicSummary) => {
               const topicName = topicSummary.topic.charAt(0).toUpperCase() + topicSummary.topic.slice(1);
               
+              // Handle case where no summaries are available
+              if (!topicSummary.summaries || topicSummary.summaries.length === 0) {
+                return `
+            <!-- Topic Section: ${topicName} - No Updates -->
+            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fbfbfb;margin-bottom:30px;padding-top:43px;padding-left:51px;padding-right:51px;padding-bottom:45px" class="topic-padding">
+              <tbody>
+                <tr>
+                  <td>
+                    <!-- Topic Header -->
+                    <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:30px">
+                      <tbody>
+                        <tr>
+                          <td>
+                            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
+                            <tbody>
+                              <tr>
+                                <td style="width:40px;vertical-align:middle">
+                                  <img src="https://res.cloudinary.com/dgqg2myag/image/upload/v1748662022/snipit-logo_vzcwe5.png" alt="SnipIt" style="display:block;outline:none;border:none;text-decoration:none;height:41px" class="logo-size">
+                                </td>
+                                <td style="vertical-align:middle">
+                                  <p style="font-size:35px;line-height:32px;font-family:Raleway,sans-serif;font-weight:bold;margin-top:16px;margin-bottom:16px;color:#000000" class="topic-title-size">
+                                    ${topicName}
+                                  </p>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    
+                    <!-- No Updates Message -->
+                    <p style="font-size:16px;line-height:24px;color:#707070;font-style:italic;margin:0;padding:20px 0">
+                      No notable updates for this topic in the past two weeks.
+                    </p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            `;
+              }
+              
               return `
             <!-- Topic Section: ${topicName} -->
             <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fbfbfb;margin-bottom:30px;padding-top:43px;padding-left:51px;padding-right:51px;padding-bottom:45px" class="topic-padding">
@@ -243,50 +286,31 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
                         // Free: Template style - each bullet has logo, bold orange title, and description
                         let bullets: string[] = [];
                         
-                        // Check if article has bullets array (new format)
-                        if (article.bullets && Array.isArray(article.bullets)) {
+                        // Check if article has bullets array (new format from OpenAI)
+                        if (article.bullets && Array.isArray(article.bullets) && article.bullets.length > 0) {
                           bullets = article.bullets;
                         } else {
-                          // Fallback: parse from summary string
-                          bullets = article.summary
-                            .split(/\n|•|-\s*/)
-                            .map(b => b.trim())
-                            .filter(b => b.length > 15)
-                            .slice(0, 3);
-                          
-                          // If we don't have enough bullets, try splitting by sentences
-                          if (bullets.length < 3) {
-                            const sentences = article.summary
-                              .split(/\.\s+/)
-                              .map(b => b.trim())
-                              .filter(b => b.length > 20);
-                            
-                            // Group sentences into bullets (1-2 sentences each)
-                            bullets = [];
-                            for (let i = 0; i < Math.min(3, sentences.length); i++) {
-                              const startIdx = Math.floor((sentences.length / 3) * i);
-                              const endIdx = i === 2 ? sentences.length : Math.floor((sentences.length / 3) * (i + 1));
-                              const bulletText = sentences.slice(startIdx, endIdx).join('. ').trim();
-                              if (bulletText) {
-                                bullets.push(bulletText + (bulletText.endsWith('.') ? '' : '.'));
-                              }
-                            }
+                          // Fallback: If no bullets array, use the summary as a single bullet
+                          // Don't try to split it into multiple bullets as that causes fragmentation
+                          const summaryText = article.summary || '';
+                          if (summaryText.trim().length > 0) {
+                            bullets = [summaryText.trim()];
+                          } else {
+                            // If no summary, skip this article
+                            return '';
                           }
                         }
                         
                         // Format bullets in template style: logo + bold orange title + description
-                        // Use article title as the title for each bullet, or extract from bullet text
+                        // Each bullet from the array gets its own row, all with the same article title
                         return bullets.map((bullet, index) => {
                           // Remove leading bullet characters if present
                           const cleanBullet = bullet.replace(/^[•\-\*]\s*/, '').trim();
                           
-                          // Extract a short title from the bullet (first 5-8 words) or use article title
-                          const words = cleanBullet.split(' ');
-                          const shortTitle = words.length > 8 
-                            ? words.slice(0, 8).join(' ') + '...'
-                            : cleanBullet.length > 60
-                            ? cleanBullet.substring(0, 60) + '...'
-                            : article.title;
+                          // Skip empty bullets
+                          if (!cleanBullet || cleanBullet.length === 0) {
+                            return '';
+                          }
                           
                           // Description is the full bullet text
                           const description = cleanBullet;

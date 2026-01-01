@@ -122,14 +122,54 @@ export async function summarizeNews(
     console.log(`[OpenAI] Cache miss for topic: ${topic}, generating new summary`);
   }
 
-  // Article selection: Since newsapi.ts always returns max 10 articles, we never have >10
-  // Take top articles, prioritizing those with better descriptions (more context)
+  // First, filter articles by basic relevance (keyword check)
+  // This is a quick first pass to remove obviously irrelevant articles
+  const topicLower = topic.toLowerCase().trim();
+  const topicKeywords = topicLower.split(/\s+/).filter(k => k.length > 2); // Filter out very short words
+  const basicRelevanceFiltered = articles.filter((article) => {
+    const searchText = `${article.title} ${article.description}`.toLowerCase();
+    // For single-word topics, require exact word match (not substring)
+    // For multi-word topics, require at least one significant keyword
+    if (topicKeywords.length === 1) {
+      // Use word boundary matching for single words to avoid false positives
+      const word = topicKeywords[0];
+      const wordBoundaryRegex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      return wordBoundaryRegex.test(searchText);
+    } else {
+      // For multi-word topics, require at least one keyword match
+      return topicKeywords.some(keyword => {
+        const wordBoundaryRegex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        return wordBoundaryRegex.test(searchText);
+      });
+    }
+  });
+
+  // If we have articles after basic filtering, use relevance filtering with OpenAI
+  // This provides more accurate filtering but costs API calls
+  let relevanceFiltered: NewsArticle[];
+  if (basicRelevanceFiltered.length > 5) {
+    console.log(`[OpenAI] Filtering ${basicRelevanceFiltered.length} articles for relevance to "${topic}"...`);
+    relevanceFiltered = await filterArticlesByRelevance(basicRelevanceFiltered, topic);
+  } else {
+    // If we have 5 or fewer, skip OpenAI filtering to save API calls
+    relevanceFiltered = basicRelevanceFiltered;
+  }
+
+  if (relevanceFiltered.length === 0) {
+    console.log(`[OpenAI] No relevant articles found for topic: ${topic}`);
+    return {
+      topic,
+      summaries: [],
+    };
+  }
+
+  // Article selection: Take top articles, prioritizing those with better descriptions (more context)
   // For free tier: take top 7 articles to ensure we can get 3 good summaries
   // For paid tier: take top 7 articles to ensure we can get 4-5 good summaries
   const articlesToTake = isPaid ? 7 : 7;
   
   // Sort articles by description quality (longer = more context) before selecting
-  const sortedArticles = [...articles].sort((a, b) => {
+  const sortedArticles = [...relevanceFiltered].sort((a, b) => {
     const aLength = a.description?.length || 0;
     const bLength = b.description?.length || 0;
     return bLength - aLength; // Longer descriptions first
@@ -148,13 +188,15 @@ export async function summarizeNews(
   const summaryCount = isPaid ? 5 : 3; // Exact numbers, not ranges
 
   // Clear, structured prompt for free tier
-  const freeTierInstructions = `For FREE TIER, you MUST return exactly 3 summaries representing the 3 most relevant and impactful points about "${topic}".
+  const freeTierInstructions = `For FREE TIER, return 1-3 summaries representing the most relevant and impactful points about "${topic}".
+PREFER 3 summaries if enough distinct articles are available, but return 1-2 if that's all that's available.
 
 CRITICAL REQUIREMENTS:
-- NO REPETITION: Each of the 3 points must be DISTINCT and UNIQUE. Do not repeat similar information.
+- NO REPETITION: Each point must be DISTINCT and UNIQUE. Do not repeat similar information.
 - NO FLUFF: Bullets must be concise, factual, and information-dense. Remove marketing language, filler words, and unnecessary details.
 - ACCURACY: Only include information that is directly stated in the articles. Do not infer or speculate.
-- RELEVANCE: Each point must be directly related to "${topic}". If an article is only tangentially related, skip it.
+- RELEVANCE: Prioritize points directly related to "${topic}". If no articles are directly about "${topic}", select the most relevant points from available articles. Only skip articles that mention "${topic}" only in passing or as a minor detail.
+- IMPORTANT: You must return at least 1 summary if any articles are provided. Only return empty array if absolutely no articles relate to "${topic}" at all.
 
 Each summary must have:
 - A "title" field with the article title that best represents that point (NO duplicate titles)
@@ -162,10 +204,10 @@ Each summary must have:
 - The bullet should be detailed and informative, providing key information about that point without fluff
 - "url" and "source" fields from the article that best supports that point
 
-The 3 points can come from:
-- The same article (if one article covers multiple DISTINCT important points)
-- Different articles (if different articles cover different important points)
-- Any combination that best represents the 3 most relevant and DISTINCT points about "${topic}"
+The points can come from:
+- Different articles (preferred - one article per summary)
+- The same article only if it covers multiple DISTINCT important points
+- Return 1-3 summaries based on what's available - quality over quantity
 
 Example structure:
 {
@@ -185,14 +227,6 @@ Example structure:
       ],
       "url": "https://example.com/article2",
       "source": "Source Name"
-    },
-    {
-      "title": "Article Title for Point 3",
-      "bullets": [
-        "Detailed explanation of the third most relevant point about ${topic} (1-2 sentences with key information)."
-      ],
-      "url": "https://example.com/article3",
-      "source": "Source Name"
     }
   ]
 }`;
@@ -210,11 +244,15 @@ You are summarizing news articles about "${topic}". From the articles below, ${i
   : `identify the 3 most relevant and impactful points about "${topic}" based on the articles provided. These 3 points must be DISTINCT, UNIQUE, and directly related to "${topic}". Each point should be substantial, informative, and contain no fluff or repetition.`} 
 
 STRICT REQUIREMENTS:
-- Only include content that is DIRECTLY about "${topic}"
+- Prioritize articles that are DIRECTLY and PRIMARILY about "${topic}"
+- If articles are available that are directly about "${topic}", use those
+- If no articles are directly about "${topic}", select the MOST RELEVANT articles from what's available (articles where "${topic}" is a significant part of the content)
+- REJECT articles that only mention "${topic}" in passing or as a minor detail
 - NO repetition of information across summaries
 - NO duplicate or very similar titles
 - NO marketing language, filler words, or fluff - be concise and factual
 - Prioritize the most important, impactful, and recent developments
+- IMPORTANT: You must return at least 1 summary if any articles are provided. Only return an empty array if absolutely no articles relate to "${topic}" at all
 
 ${isPaid ? paidTierInstructions : freeTierInstructions}
 
@@ -238,7 +276,7 @@ URL: ${article.url}`;
   )
   .join('\n\n')}`;
 
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 2; // Reduced retries since we'll accept fewer summaries
   let retries = 0;
 
   while (retries < MAX_RETRIES) {
@@ -249,8 +287,8 @@ URL: ${article.url}`;
         {
           role: 'system',
           content: isPaid
-            ? 'You are a news summarizer for paid tier. Return ONLY valid JSON with 4-5 articles, each having "title", "summary" (2-3 sentences, no fluff), "url", and "source". Ensure no duplicate titles or repeated information. No markdown, no code blocks.'
-            : 'You are a news summarizer for free tier. Return ONLY valid JSON with exactly 3 summaries. Each summary must have "title" (unique, no duplicates), "bullets" (array with exactly 1 string, 1-2 sentences, no fluff), "url", and "source". Ensure all 3 points are DISTINCT and UNIQUE - no repetition. No markdown, no code blocks.',
+            ? `You are a news summarizer for paid tier. Return ONLY valid JSON with 4-5 articles about "${topic}". Prioritize articles where "${topic}" is the main subject, but if needed, select the most relevant articles available. Each article must have "title", "summary" (2-3 sentences, no fluff), "url", and "source". IMPORTANT: You must return at least 1 summary from the provided articles. Only return empty array if absolutely no articles relate to "${topic}". Ensure no duplicate titles or repeated information. No markdown, no code blocks.`
+            : `You are a news summarizer for free tier. Return ONLY valid JSON with 1-3 summaries (prefer 3, but return 1-2 if that's all available) about "${topic}". Prioritize summaries where "${topic}" is the main subject, but if needed, select the most relevant articles available. Each summary must have "title" (unique, no duplicates), "bullets" (array with exactly 1 string, 1-2 sentences, no fluff), "url", and "source". IMPORTANT: You must return at least 1 summary from the provided articles. Only return empty array if absolutely no articles relate to "${topic}". Ensure all points are DISTINCT and UNIQUE - no repetition. No markdown, no code blocks.`,
         },
           {
             role: 'user',
@@ -305,18 +343,13 @@ URL: ${article.url}`;
         Array.isArray(parsed.summaries) &&
         parsed.summaries.length > 0
       ) {
-        // For free tier: enforce exactly 3 summaries with bullets
-        // For paid tier: enforce 4-5 summaries with paragraphs
-        const requiredCount = isPaid ? 4 : 3;
+        // For free tier: prefer 3 summaries, but accept 1-2 if that's all available
+        // For paid tier: prefer 4-5 summaries, but accept fewer if needed
+        const preferredCount = isPaid ? 4 : 3;
         const maxCount = isPaid ? 5 : 3;
+        const minAcceptableCount = 1; // Accept 1 or more summaries
         
         let summaries = parsed.summaries;
-        
-        // Validate structure first
-        if (summaries.length < requiredCount) {
-          console.warn(`[OpenAI] Only got ${summaries.length} summaries, expected at least ${requiredCount}. Retrying...`);
-          throw new Error(`Insufficient summaries: got ${summaries.length}, need at least ${requiredCount}`);
-        }
         
         // Limit to max count
         summaries = summaries.slice(0, maxCount);
@@ -357,35 +390,32 @@ URL: ${article.url}`;
           }
         });
         
-        // For free tier, we MUST have exactly 3 valid summaries
-        if (!isPaid && validSummaries.length < 3) {
-          console.warn(`[OpenAI] Only ${validSummaries.length} valid free tier summaries, need exactly 3. Retrying...`);
-          throw new Error(`Insufficient valid summaries: got ${validSummaries.length}, need exactly 3`);
-        }
-        
-        // For paid tier, we need at least 4
-        if (isPaid && validSummaries.length < 4) {
-          console.warn(`[OpenAI] Only ${validSummaries.length} valid paid tier summaries, need at least 4. Retrying...`);
-          throw new Error(`Insufficient valid summaries: got ${validSummaries.length}, need at least 4`);
-        }
-        
+        // Accept summaries if we have at least 1, but prefer the preferred count
         if (validSummaries.length === 0) {
           throw new Error('All summaries are missing required fields');
         }
         
-        console.log(`[OpenAI] Successfully parsed ${validSummaries.length} summaries for topic: ${topic}`);
+        // If we have fewer than preferred, log a warning but continue (don't retry)
+        if (validSummaries.length < preferredCount) {
+          console.warn(`[OpenAI] Only ${validSummaries.length} valid summaries for "${topic}" (preferred: ${preferredCount}). Using available summaries.`);
+        } else {
+          console.log(`[OpenAI] Successfully parsed ${validSummaries.length} summaries for topic: ${topic}`);
+        }
         
         // Post-processing: Deduplicate titles and bullets to ensure uniqueness
         const deduplicatedSummaries = deduplicateSummaries(validSummaries, isPaid);
         
-        // Ensure we still have enough summaries after deduplication
-        const finalSummaries = deduplicatedSummaries.length >= (isPaid ? 4 : 3) 
+        // Use deduplicated summaries (even if fewer than preferred)
+        const finalSummaries = deduplicatedSummaries.length > 0 
           ? deduplicatedSummaries 
           : validSummaries;
         
         if (deduplicatedSummaries.length < validSummaries.length) {
           console.log(`[OpenAI] Deduplication removed ${validSummaries.length - deduplicatedSummaries.length} duplicate summaries`);
         }
+        
+        // If we still have summaries after deduplication, use them (even if < 3)
+        if (finalSummaries.length >= minAcceptableCount) {
         
         const result: NewsSummary = {
           topic,
@@ -416,7 +446,22 @@ URL: ${article.url}`;
         }
 
         return result;
+        }
       } else {
+        // If summaries array is empty, log the articles that were provided for debugging
+        if (parsed.summaries && Array.isArray(parsed.summaries) && parsed.summaries.length === 0) {
+          console.warn(`[OpenAI] OpenAI returned empty summaries array for topic: "${topic}"`);
+          console.log(`[OpenAI] Articles provided to OpenAI (${articlesToSummarize.length}):`, 
+            articlesToSummarize.map(a => ({ title: a.title.substring(0, 100), url: a.url }))
+          );
+          
+          // If this is the first attempt and we have articles, retry with a less strict approach
+          if (retries === 0 && articlesToSummarize.length > 0) {
+            console.log(`[OpenAI] Retrying with less strict relevance requirements...`);
+            continue; // Retry the loop
+          }
+        }
+        
         console.error(`[OpenAI] Invalid response structure:`, {
           hasSummaries: !!parsed.summaries,
           isArray: Array.isArray(parsed.summaries),
@@ -463,95 +508,52 @@ URL: ${article.url}`;
   }
 
   // Fallback: return basic summaries with proper structure
+  // Only use fallback if we have articles but OpenAI failed
+  if (articlesToSummarize.length === 0) {
+    console.log(`[OpenAI] No articles available for ${topic} - returning empty summaries`);
+    return {
+      topic,
+      summaries: [],
+    };
+  }
+
   console.log(`[OpenAI] Using fallback summaries for topic: ${topic}`);
-  const fallbackCount = isPaid ? 4 : 3;
-  // For free tier fallback, use the most relevant article (first one) for all 3 summaries
-  // This ensures we have content even if OpenAI fails
-  const fallbackArticle = articlesToSummarize[0];
-  const fallbackArticles = isPaid ? articlesToSummarize.slice(0, fallbackCount) : [fallbackArticle];
+  // Use top 3 latest articles (as per user requirement)
+  const articlesToUse = articlesToSummarize.slice(0, 3);
   
   let fallbackResult: NewsSummary;
   
   if (isPaid) {
-    // Paid tier fallback: paragraph summaries
+    // Paid tier fallback: paragraph summaries from top 3 articles
     fallbackResult = {
       topic,
-      summaries: fallbackArticles.map((article) => ({
+      summaries: articlesToUse.map((article) => ({
         title: article.title,
         summary: article.description 
-          ? article.description.substring(0, 300).trim() + (article.description.length > 300 ? '...' : '')
+          ? (article.description.length > 300 
+              ? article.description.substring(0, 300).trim() + '...' 
+              : article.description.trim())
           : 'No description available',
         url: article.url,
         source: article.source.name,
       })),
     };
   } else {
-    // Free tier fallback: create 3 summaries all from the most relevant article
-    // Split the article description into 9 bullet points, then group into 3 summaries of 3 bullets each
-    const description = fallbackArticle.description || 'No description available';
-    const sentences = description
-      .split(/[.!?]+/)
-      .map(s => s.trim())
-      .filter(s => s.length > 15)
-      .slice(0, 12); // Get up to 12 sentences to create 9 bullets (3 summaries × 3 bullets)
-    
-    let allBullets: string[] = [];
-    if (sentences.length >= 3) {
-      // Group sentences into bullets (1-2 sentences each)
-      const perBullet = Math.ceil(sentences.length / 9);
-      for (let i = 0; i < Math.min(9, sentences.length); i++) {
-        const start = i * perBullet;
-        const end = Math.min(start + perBullet, sentences.length);
-        const bulletText = sentences.slice(start, end).join('. ').trim();
-        if (bulletText) {
-          allBullets.push(bulletText + (bulletText.endsWith('.') ? '' : '.'));
-        }
-      }
-    } else {
-      // If not enough sentences, create bullets from description chunks
-      const chunkSize = Math.ceil(description.length / 9);
-      for (let i = 0; i < 9; i++) {
-        const start = i * chunkSize;
-        const end = Math.min(start + chunkSize, description.length);
-        const chunk = description.substring(start, end).trim();
-        if (chunk) {
-          allBullets.push(chunk + (chunk.endsWith('.') ? '' : '.'));
-        }
-      }
-    }
-    
-    // Ensure we have at least 9 bullets (pad if needed)
-    while (allBullets.length < 9) {
-      allBullets.push('Additional information available in the full article.');
-    }
-    allBullets = allBullets.slice(0, 9);
-    
-    // Group into 3 summaries of 3 bullets each
+    // Free tier fallback: create summaries from top 3 articles
+    // Use each article as a separate summary with its description as a bullet
     fallbackResult = {
       topic,
-      summaries: [
-        {
-          title: fallbackArticle.title,
-          bullets: allBullets.slice(0, 3),
-          summary: description.substring(0, 200) + '...',
-          url: fallbackArticle.url,
-          source: fallbackArticle.source.name,
-        },
-        {
-          title: fallbackArticle.title,
-          bullets: allBullets.slice(3, 6),
-          summary: description.substring(0, 200) + '...',
-          url: fallbackArticle.url,
-          source: fallbackArticle.source.name,
-        },
-        {
-          title: fallbackArticle.title,
-          bullets: allBullets.slice(6, 9),
-          summary: description.substring(0, 200) + '...',
-          url: fallbackArticle.url,
-          source: fallbackArticle.source.name,
-        },
-      ],
+      summaries: articlesToUse.map((article) => ({
+        title: article.title,
+        bullets: [article.description.length > 200 
+          ? article.description.substring(0, 200).trim() + '...' 
+          : article.description.trim()],
+        summary: article.description.length > 200 
+          ? article.description.substring(0, 200).trim() + '...' 
+          : article.description.trim(),
+        url: article.url,
+        source: article.source.name,
+      })),
     };
   }
 

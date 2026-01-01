@@ -19,6 +19,7 @@ import {
   Mail,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { IPhoneVideoMockup } from '@/components/IPhoneVideoMockup';
 
 interface User {
   id: string;
@@ -44,7 +45,6 @@ export default function LandingPage() {
   const [isCheckingUser, setIsCheckingUser] = useState(true);
   const [error, setError] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ['start start', 'end start'],
@@ -52,35 +52,6 @@ export default function LandingPage() {
 
   const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
   const scale = useTransform(scrollYProgress, [0, 0.5], [1, 0.95]);
-
-  // Auto-play video when it's visible
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            video.play().catch((err) => {
-              console.log('Video autoplay prevented:', err);
-            });
-          } else {
-            video.pause();
-          }
-        });
-      },
-      {
-        threshold: 0.5, // Play when 50% of video is visible
-      }
-    );
-
-    observer.observe(video);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
 
   useEffect(() => {
     checkUserStatus();
@@ -478,27 +449,20 @@ export default function LandingPage() {
                 )}
               </div>
 
-              {/* Video Showcase */}
+              {/* Video Showcase - iPhone Frame */}
               {!isExistingUser && (
                 <motion.div
                   initial={{ opacity: 0, y: 40 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.8, delay: 0.7 }}
-                  className="max-w-5xl mx-auto mt-16 md:mt-24"
+                  className="max-w-5xl mx-auto mt-16 md:mt-24 flex justify-center"
                 >
-                  <div className="relative w-full">
-                    <div className="relative aspect-video rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
-                      <video
-                        ref={videoRef}
-                        src="/logos/Product Animation.mp4"
-                        className="w-full h-full object-cover"
-                        muted
-                        loop
-                        playsInline
-                        autoPlay
-                      />
-                    </div>
-                  </div>
+                  <IPhoneVideoMockup
+                    videoSrc="/logos/Product Animation.mp4"
+                    model="15-pro"
+                    color="space-black"
+                    className="scale-75 md:scale-100"
+                  />
                 </motion.div>
               )}
 
@@ -510,7 +474,7 @@ export default function LandingPage() {
                 className="mt-16 md:mt-24 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto"
               >
                 {[
-                  { value: '8:30 AM EST', label: 'Daily Delivery' },
+                  { value: '8:30 AM', label: 'Daily Delivery' },
                   { value: '5', label: 'Topics Free' },
                   { value: '60s', label: 'Read Time' },
                   { value: 'AI', label: 'Powered' },
