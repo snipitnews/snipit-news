@@ -170,9 +170,9 @@ export default function LandingPage() {
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          // Point to client-side callback page
-          // Magic links use PKCE and require client-side handling to access code_verifier
-          emailRedirectTo: `${appUrl}/auth/callback`,
+          // Point to /auth/confirm which verifies token_hash server-side
+          // This is device-agnostic and works across browsers/devices
+          emailRedirectTo: `${appUrl}/auth/confirm`,
           shouldCreateUser: true,
         },
       });
