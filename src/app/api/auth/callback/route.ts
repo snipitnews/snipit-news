@@ -56,69 +56,27 @@ export async function GET(request: NextRequest) {
         }
       );
 
-      // For email OTP with token parameter, verify on server side
+      // For email OTP with token_hash parameter, redirect to /auth/confirm
+      // Magic links now use token_hash and are handled by /auth/confirm route
       if (token) {
-        console.log('🔐 Token parameter detected - attempting server-side OTP verification');
-        const { data, error: verifyError } = await supabase.auth.verifyOtp({
-          token_hash: token,
-          type: (type as 'email' | 'magiclink') || 'magiclink',
-        });
-
-        if (verifyError) {
-          console.error('❌ OTP verification failed:', verifyError);
-          return NextResponse.redirect(
-            `${origin}/auth/auth-code-error?error=${encodeURIComponent(verifyError.message || 'otp_verification_failed')}`
-          );
-        }
-
-        if (data?.user && data?.session) {
-          console.log('✅ OTP verification successful on server side');
-          // Redirect to client-side callback to complete the flow
-          return NextResponse.redirect(`${origin}/auth/callback?success=true`);
-        }
+        console.log('🔐 Token parameter detected - redirecting to /auth/confirm');
+        return NextResponse.redirect(
+          `${origin}/auth/confirm?token_hash=${encodeURIComponent(token)}&type=${type || 'email'}`
+        );
       }
 
-      // For code parameter - verify with verifyOtp (for email magic links)
-      // Email magic links send a code that must be verified with verifyOtp, NOT exchangeCodeForSession
-      // exchangeCodeForSession requires PKCE (code verifier) which email magic links don't have
+      // For code parameter - this is a PKCE authorization code
+      // PKCE codes require a code verifier stored in browser session storage
+      // So we need to redirect to client-side callback to handle the exchange
       if (code) {
-        console.log('🔐 Code parameter detected - attempting OTP verification (email magic link)');
+        console.log('🔐 Code parameter detected - redirecting to client-side callback for PKCE exchange');
         console.log('  Code length:', code.length);
         console.log('  Code preview:', code.substring(0, 50));
-
-        // For email magic links, the code should be verified with verifyOtp
-        // Try both magiclink and email types
-        const otpTypes: Array<'email' | 'magiclink'> = ['magiclink', 'email'];
-        let verified = false;
-
-        for (const otpType of otpTypes) {
-          console.log(`  Trying verifyOtp as type: ${otpType}...`);
-          const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
-            token: code,
-            type: otpType,
-          } as any);
-
-          if (!verifyError && verifyData?.user && verifyData?.session) {
-            console.log(`✅ OTP verification successful as ${otpType}`);
-            console.log('  User ID:', verifyData.user.id);
-            // Redirect to client-side callback to complete the flow
-            return NextResponse.redirect(`${origin}/auth/callback?success=true`);
-          } else if (verifyError) {
-            console.log(`  ❌ OTP verification failed for ${otpType}:`, verifyError.message);
-          }
-        }
-
-        // If all OTP verification attempts failed, the code is invalid or expired
-        if (!verified) {
-          console.error('❌ All OTP verification attempts failed');
-          console.error('  This code is not a valid OTP token for email magic links');
-          console.error('  Note: We do NOT try exchangeCodeForSession for email magic links');
-          console.error('  because they don\'t use PKCE and will always fail with "code verifier" error');
-          
-          return NextResponse.redirect(
-            `${origin}/auth/auth-code-error?error=${encodeURIComponent('authentication_failed')}&details=${encodeURIComponent('Unable to verify the authentication code. This may be due to an expired or invalid link. Please request a new magic link.')}`
-          );
-        }
+        console.log('  Note: PKCE code verifier is stored client-side, so exchange must happen there');
+        
+        // Redirect to client-side callback with the code
+        // The client will use exchangeCodeForSession which has access to the code verifier
+        return NextResponse.redirect(`${origin}/auth/callback?code=${encodeURIComponent(code)}`);
       }
     } catch (error) {
       console.error('❌ Unexpected error during auth processing:', error);

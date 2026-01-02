@@ -10,48 +10,26 @@ function AuthCallbackContent() {
 
   useEffect(() => {
     const handleAuth = async () => {
-      // Check if we have a code in the URL (from magic link)
-      const code = searchParams.get('code');
+      // Check if server-side verification was successful
       const success = searchParams.get('success');
 
-      // If we have a code, try to exchange it for a session
-      if (code) {
-        console.log('🔐 Code found in URL, attempting to exchange for session...');
-        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-        
-        if (error) {
-          console.error('❌ Failed to exchange code for session:', error);
-          router.push(
-            `/auth/auth-code-error?error=${encodeURIComponent(error.message || 'authentication_failed')}`
-          );
-          return;
-        }
-
-        if (data?.session) {
-          console.log('✅ Successfully exchanged code for session');
-          // Continue with session handling below
-        } else {
-          console.error('❌ No session returned from code exchange');
-          router.push(
-            '/auth/auth-code-error?error=session_not_found&details=Unable to create session. The magic link may be expired or invalid. Please request a new magic link.'
-          );
-          return;
-        }
+      if (success !== 'true') {
+        console.error('❌ No success parameter found');
+        router.push(
+          '/auth/auth-code-error?error=missing_success_param&details=Authentication callback is missing required parameters.'
+        );
+        return;
       }
 
-      // If success=true, the server already verified the OTP, just wait for session
-      if (success === 'true') {
-        console.log('✅ Server-side verification successful, waiting for session...');
-        // Give the server a moment to set cookies, then try to get session
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-
-      // Get the session (either from code exchange above or from cookies)
-      // Retry a few times if session isn't immediately available (for server-side verification)
+      console.log('✅ Server-side verification successful, waiting for session...');
+      // Give the server a moment to set cookies, then try to get session
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Retry a few times if session isn't immediately available
       let session = null;
       let sessionError = null;
       let retries = 0;
-      const maxRetries = success === 'true' ? 3 : 0; // Only retry if server already verified
+      const maxRetries = 3;
 
       while (retries <= maxRetries) {
         const result = await supabase.auth.getSession();
@@ -80,7 +58,7 @@ function AuthCallbackContent() {
       }
 
       if (!session?.user) {
-        console.error('❌ No session found after retries');
+        console.error('❌ No session found');
         router.push(
           '/auth/auth-code-error?error=session_not_found&details=Unable to create session. The magic link may be expired or invalid. Please request a new magic link.'
         );

@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE,
   subscription_tier TEXT NOT NULL DEFAULT 'free' CHECK (subscription_tier IN ('free', 'paid')),
   stripe_customer_id TEXT UNIQUE,
+  role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -50,12 +51,51 @@ CREATE TABLE IF NOT EXISTS subscription_metadata (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create summary_cache table to store cached summaries by topic and date
+CREATE TABLE IF NOT EXISTS summary_cache (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  topic TEXT NOT NULL,
+  date DATE NOT NULL, -- Date for which the summary was generated (YYYY-MM-DD)
+  is_paid BOOLEAN NOT NULL DEFAULT FALSE, -- Whether this is for paid or free tier
+  summaries JSONB NOT NULL, -- The cached summaries
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(topic, date, is_paid) -- One cache entry per topic per day per tier
+);
+
+-- Create cron_job_logs table to track daily digest execution
+CREATE TABLE IF NOT EXISTS cron_job_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  execution_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  status TEXT NOT NULL CHECK (status IN ('success', 'failed', 'running')),
+  processed_count INTEGER NOT NULL DEFAULT 0,
+  successful_count INTEGER NOT NULL DEFAULT 0,
+  failed_count INTEGER NOT NULL DEFAULT 0,
+  skipped_count INTEGER NOT NULL DEFAULT 0,
+  errors JSONB DEFAULT '[]'::jsonb,
+  execution_time_ms INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Create topics table for managing available topics
+CREATE TABLE IF NOT EXISTS topics (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  main_category TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Enable Row Level Security on all tables
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_topics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_email_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_archive ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subscription_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE summary_cache ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cron_job_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE topics ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for users table
 CREATE POLICY "Users can view their own data" ON users
@@ -103,6 +143,43 @@ CREATE POLICY "Users can view their own subscription data" ON subscription_metad
 
 CREATE POLICY "Service role can manage all subscription data" ON subscription_metadata
   FOR ALL USING (auth.role() = 'service_role');
+
+-- RLS Policies for summary_cache table
+CREATE POLICY "Service role can manage all summary cache" ON summary_cache
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "Anyone can read summary cache" ON summary_cache
+  FOR SELECT USING (true);
+
+-- RLS Policies for cron_job_logs table
+CREATE POLICY "Admins can read cron job logs" ON cron_job_logs
+  FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM users
+      WHERE users.id = auth.uid()
+      AND users.role = 'admin'
+    )
+  );
+
+CREATE POLICY "Service role can insert cron job logs" ON cron_job_logs
+  FOR INSERT
+  WITH CHECK (true);
+
+-- RLS Policies for topics table
+CREATE POLICY "Anyone can view active topics" ON topics
+  FOR SELECT
+  USING (is_active = TRUE);
+
+CREATE POLICY "Admins can manage topics" ON topics
+  FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM users
+      WHERE users.id = auth.uid()
+      AND users.role = 'admin'
+    )
+  );
 
 -- Function to check topic limits
 CREATE OR REPLACE FUNCTION check_topic_limit()
@@ -168,6 +245,14 @@ CREATE INDEX IF NOT EXISTS idx_email_archive_user_id ON email_archive(user_id);
 CREATE INDEX IF NOT EXISTS idx_email_archive_sent_at ON email_archive(sent_at DESC);
 CREATE INDEX IF NOT EXISTS idx_subscription_metadata_user_id ON subscription_metadata(user_id);
 CREATE INDEX IF NOT EXISTS idx_subscription_metadata_stripe_id ON subscription_metadata(stripe_subscription_id);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_summary_cache_topic_date ON summary_cache(topic, date);
+CREATE INDEX IF NOT EXISTS idx_summary_cache_date ON summary_cache(date DESC);
+CREATE INDEX IF NOT EXISTS idx_summary_cache_is_paid ON summary_cache(is_paid);
+CREATE INDEX IF NOT EXISTS idx_cron_job_logs_execution_date ON cron_job_logs(execution_date DESC);
+CREATE INDEX IF NOT EXISTS idx_cron_job_logs_status ON cron_job_logs(status);
+CREATE INDEX IF NOT EXISTS idx_topics_main_category ON topics(main_category);
+CREATE INDEX IF NOT EXISTS idx_topics_is_active ON topics(is_active);
 
 -- Function to handle user creation
 CREATE OR REPLACE FUNCTION handle_new_user()
@@ -194,3 +279,130 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW
   EXECUTE FUNCTION handle_new_user();
+
+-- Function to automatically update summary_cache updated_at timestamp
+CREATE OR REPLACE FUNCTION update_summary_cache_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to update summary_cache updated_at
+CREATE TRIGGER update_summary_cache_timestamp
+  BEFORE UPDATE ON summary_cache
+  FOR EACH ROW
+  EXECUTE FUNCTION update_summary_cache_updated_at();
+
+-- Insert initial topics from the predefined list
+INSERT INTO topics (name, main_category) VALUES
+-- Sports
+('NBA', 'Sports'),
+('NFL', 'Sports'),
+('MLB', 'Sports'),
+('NHL', 'Sports'),
+('Soccer', 'Sports'),
+
+-- Politics
+('U.S. Politics', 'Politics'),
+('Global Politics', 'Politics'),
+
+-- Technology
+('AI', 'Technology'),
+('Startups', 'Technology'),
+('Gadgets', 'Technology'),
+('Big Tech', 'Technology'),
+
+-- Business and Finance
+('Stock Market', 'Business and Finance'),
+('Corporate News', 'Business and Finance'),
+('Personal Finance Tips', 'Business and Finance'),
+
+-- Science
+('Medical Research', 'Science'),
+('Environmental Science', 'Science'),
+('Astronomy', 'Science'),
+('NASA Missions', 'Science'),
+('Scientific Discoveries', 'Science'),
+
+-- Health and Wellness
+('Fitness', 'Health and Wellness'),
+('Nutrition', 'Health and Wellness'),
+('Mental Health', 'Health and Wellness'),
+
+-- Entertainment
+('Movies', 'Entertainment'),
+('TV Shows', 'Entertainment'),
+('Celebrities', 'Entertainment'),
+
+-- Lifestyle and Luxury
+('High-End Fashion', 'Lifestyle and Luxury'),
+('Wellness', 'Lifestyle and Luxury'),
+('Home Decor', 'Lifestyle and Luxury'),
+
+
+-- Education
+('Higher Education', 'Education'),
+('Online Learning', 'Education'),
+
+
+-- World News
+('Regional News', 'World News'),
+('Europe', 'World News'),
+('Asia', 'World News'),
+
+
+-- Environment
+('Climate Change', 'Environment'),
+('Renewable Energy', 'Environment'),
+
+
+-- Food
+('Restaurant Reviews', 'Food'),
+('Food Trends', 'Food'),
+
+-- Gaming
+('Game Releases', 'Gaming'),
+('Console Updates', 'Gaming'),
+('PC Gaming', 'Gaming'),
+
+-- Culture
+('Art', 'Culture'),
+('Painting', 'Culture'),
+('Graphic Design', 'Culture'),
+('Sculpture', 'Culture'),
+('Architecture', 'Culture'),
+
+
+-- Parenting and Family
+('Parenting Tips', 'Parenting and Family'),
+('Child Development', 'Parenting and Family'),
+
+
+-- Automotive
+('Electric Vehicles', 'Automotive'),
+('Car Reviews', 'Automotive'),
+
+
+-- Career and Professional Development
+('Resume Tips', 'Career and Professional Development'),
+('Networking', 'Career and Professional Development'),
+
+
+-- Military and Defense
+('Global Conflicts', 'Military and Defense'),
+
+
+-- Adventure and Outdoor Activities
+('Hiking', 'Adventure and Outdoor Activities'),
+('Camping', 'Adventure and Outdoor Activities'),
+
+
+-- Personal Development
+('Productivity', 'Personal Development'),
+('Time Management', 'Personal Development'),
+
+-- Legal and Policy
+('Landmark Cases', 'Legal and Policy')
+ON CONFLICT (name) DO NOTHING;
