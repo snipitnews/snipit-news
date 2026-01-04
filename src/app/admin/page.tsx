@@ -37,6 +37,7 @@ interface CronJobLog {
   failed_count: number;
   skipped_count: number;
   errors: string[] | null;
+  skip_reasons: string[] | null;
   execution_time_ms: number | null;
   created_at: string;
 }
@@ -108,6 +109,7 @@ export default function AdminPortal() {
       setLogs((data || []).map(log => ({
         ...log,
         errors: Array.isArray(log.errors) ? log.errors : (log.errors ? [String(log.errors)] : []),
+        skip_reasons: Array.isArray(log.skip_reasons) ? log.skip_reasons : (log.skip_reasons ? [String(log.skip_reasons)] : []),
         execution_time_ms: log.execution_time_ms ?? 0,
       })));
     } catch (error) {
@@ -844,20 +846,35 @@ export default function AdminPortal() {
                           </span>
                         </td>
                         <td className="py-4 px-4 text-sm text-gray-400">
-                          {log.errors && log.errors.length > 0 ? (
-                            <details className="cursor-pointer">
-                              <summary className="text-red-400 hover:text-red-300">
-                                {log.errors.length} error{log.errors.length > 1 ? 's' : ''}
-                              </summary>
-                              <ul className="mt-2 space-y-1 text-xs">
-                                {log.errors.map((error, idx) => (
-                                  <li key={idx} className="text-red-300">• {error}</li>
-                                ))}
-                              </ul>
-                            </details>
-                          ) : (
-                            <span className="text-gray-600">—</span>
-                          )}
+                          <div className="space-y-2">
+                            {log.errors && log.errors.length > 0 && (
+                              <details className="cursor-pointer">
+                                <summary className="text-red-400 hover:text-red-300">
+                                  {log.errors.length} error{log.errors.length > 1 ? 's' : ''}
+                                </summary>
+                                <ul className="mt-2 space-y-1 text-xs">
+                                  {log.errors.map((error, idx) => (
+                                    <li key={idx} className="text-red-300">• {error}</li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+                            {log.skip_reasons && log.skip_reasons.length > 0 && (
+                              <details className="cursor-pointer">
+                                <summary className="text-yellow-400 hover:text-yellow-300">
+                                  {log.skip_reasons.length} skip reason{log.skip_reasons.length > 1 ? 's' : ''}
+                                </summary>
+                                <ul className="mt-2 space-y-1 text-xs">
+                                  {log.skip_reasons.map((reason, idx) => (
+                                    <li key={idx} className="text-yellow-300">• {reason}</li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+                            {(!log.errors || log.errors.length === 0) && (!log.skip_reasons || log.skip_reasons.length === 0) && (
+                              <span className="text-gray-600">—</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
