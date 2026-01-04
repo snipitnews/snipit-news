@@ -80,6 +80,7 @@ export async function GET(request: NextRequest) {
       failed: 0,
       skipped: 0,
       errors: [] as string[],
+      skipReasons: [] as string[],
     };
 
     // Process each user
@@ -90,42 +91,22 @@ export async function GET(request: NextRequest) {
         // Check if user has paused emails
         const emailSettings = user.user_email_settings?.[0];
         if (emailSettings?.paused) {
-          console.log(`User ${user.email} has paused emails, skipping`);
+          const reason = `User ${user.email} has paused emails`;
+          console.log(reason);
           results.skipped++;
+          results.skipReasons.push(reason);
           continue;
         }
 
         if (!user.user_topics || user.user_topics.length === 0) {
-          console.log(`User ${user.email} has no topics, skipping`);
+          const reason = `User ${user.email} has no topics`;
+          console.log(reason);
           results.skipped++;
+          results.skipReasons.push(reason);
           continue;
         }
 
-        // Check if it's 8:30 AM in the user's timezone
-        const userTimezone = emailSettings?.timezone || 'America/New_York';
-        const now = new Date();
-        
-        // Get current time in user's timezone using Intl.DateTimeFormat
-        const formatter = new Intl.DateTimeFormat('en-US', {
-          timeZone: userTimezone,
-          hour: 'numeric',
-          minute: 'numeric',
-          hour12: false,
-        });
-        
-        const parts = formatter.formatToParts(now);
-        const userHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
-        const userMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
-        
-        // Only send if it's 8:30 AM (within a 5-minute window to account for cron timing)
-        const isDeliveryTime = userHour === 8 && userMinute >= 25 && userMinute <= 35;
-        
-        if (!isDeliveryTime) {
-          console.log(`User ${user.email} (${userTimezone}): Current time is ${userHour}:${userMinute.toString().padStart(2, '0')}, skipping (not 8:30 AM)`);
-          results.skipped++;
-          continue;
-        }
-
+        // Process user - send email at 8:30 AM EST regardless of user's timezone
         const topics = user.user_topics.map((ut) => ut.topic_name);
         console.log(
           `Processing user ${user.email} with topics: ${topics.join(', ')}`
@@ -151,8 +132,10 @@ export async function GET(request: NextRequest) {
         }
 
         if (summaries.length === 0) {
-          console.log(`No news found for user ${user.email}`);
+          const reason = `No news found for user ${user.email}`;
+          console.log(reason);
           results.skipped++;
+          results.skipReasons.push(reason);
           continue;
         }
 
@@ -211,6 +194,7 @@ export async function GET(request: NextRequest) {
         failed_count: results.failed,
         skipped_count: results.skipped,
         errors: results.errors,
+        skip_reasons: results.skipReasons,
         execution_time_ms: executionTime,
       } as never);
     } catch (logError) {

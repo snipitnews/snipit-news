@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
       failed: 0,
       skipped: 0,
       errors: [] as string[],
+      skipReasons: [] as string[],
     };
 
     // Process each user (skip timezone check for force send)
@@ -121,14 +122,18 @@ export async function POST(request: NextRequest) {
         // Check if user has paused emails
         const emailSettings = user.user_email_settings?.[0];
         if (emailSettings?.paused) {
-          console.log(`User ${user.email} has paused emails, skipping`);
+          const reason = `User ${user.email} has paused emails`;
+          console.log(reason);
           results.skipped++;
+          results.skipReasons.push(reason);
           continue;
         }
 
         if (!user.user_topics || user.user_topics.length === 0) {
-          console.log(`User ${user.email} has no topics, skipping`);
+          const reason = `User ${user.email} has no topics`;
+          console.log(reason);
           results.skipped++;
+          results.skipReasons.push(reason);
           continue;
         }
 
@@ -157,8 +162,10 @@ export async function POST(request: NextRequest) {
         }
 
         if (summaries.length === 0) {
-          console.log(`No news found for user ${user.email}`);
+          const reason = `No news found for user ${user.email}`;
+          console.log(reason);
           results.skipped++;
+          results.skipReasons.push(reason);
           continue;
         }
 
@@ -217,6 +224,7 @@ export async function POST(request: NextRequest) {
         failed_count: results.failed,
         skipped_count: results.skipped,
         errors: results.errors,
+        skip_reasons: results.skipReasons,
         execution_time_ms: executionTime,
         execution_date: new Date().toISOString(),
       } as never);

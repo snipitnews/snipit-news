@@ -24,6 +24,12 @@
 .DS_Store
 *.pem
 
+# video files
+public/logos/Product Animation.mp4
+*.mp4
+*.mov
+*.avi
+
 # debug
 npm-debug.log*
 yarn-debug.log*
