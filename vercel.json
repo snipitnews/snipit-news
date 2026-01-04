@@ -4,5 +4,10 @@
       "path": "/api/cron/send-digests",
       "schedule": "30 13 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "src/app/api/cron/send-digests/route.ts": {
+      "maxDuration": 60
+    }
+  }
 }

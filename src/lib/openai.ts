@@ -455,10 +455,17 @@ URL: ${article.url}`;
             articlesToSummarize.map(a => ({ title: a.title.substring(0, 100), url: a.url }))
           );
           
-          // If this is the first attempt and we have articles, retry with a less strict approach
-          if (retries === 0 && articlesToSummarize.length > 0) {
-            console.log(`[OpenAI] Retrying with less strict relevance requirements...`);
+          // If we haven't exceeded max retries and we have articles, retry with a less strict approach
+          if (retries < MAX_RETRIES && articlesToSummarize.length > 0) {
+            retries++; // Increment retry counter
+            console.log(`[OpenAI] Retrying with less strict relevance requirements... (attempt ${retries}/${MAX_RETRIES})`);
+            // Add a small delay before retrying
+            await new Promise((resolve) => setTimeout(resolve, 500));
             continue; // Retry the loop
+          } else {
+            // Max retries reached or no articles - break out and use fallback
+            console.warn(`[OpenAI] Max retries reached or no articles available for "${topic}" - will use fallback`);
+            break;
           }
         }
         
