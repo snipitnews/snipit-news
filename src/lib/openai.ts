@@ -90,6 +90,72 @@ export async function summarizeNews(
   articles: NewsArticle[],
   isPaid: boolean = false
 ): Promise<NewsSummary> {
+  const SPORTS_TOPICS = [
+    'sports',
+    'nba',
+    'nfl',
+    'mlb',
+    'nhl',
+    'soccer',
+    'la liga',
+    'ligue 1',
+    'epl',
+    'tennis',
+    'golf',
+    'esports',
+    'motorsports',
+    'athlete spotlights',
+    'recovery and injury prevention',
+  ];
+
+  const BUSINESS_TOPICS = [
+    'business',
+    'business and finance',
+    'stock market',
+    'startups',
+    'corporate news',
+    'personal finance tips',
+    'investments',
+    'cryptocurrency',
+    'bitcoin',
+    'ethereum',
+    'nfts',
+    'economic policies',
+    'inflation trends',
+    'job market',
+    'venture capital',
+    'business models',
+  ];
+
+  const TECH_TOPICS = [
+    'technology',
+    'tech',
+    'artificial intelligence',
+    'ai',
+    'startups',
+    'gadgets',
+    'big tech',
+    'software development',
+    'blockchain technology',
+    'space exploration',
+    'cybersecurity',
+    'emerging tech trends',
+  ];
+
+  const HEALTH_TOPICS = [
+    'health',
+    'health and wellness',
+    'fitness',
+    'nutrition',
+    'mental health',
+    'public health policies',
+    'therapy tips',
+    'mindfulness',
+    'coping mechanisms',
+    'stress management',
+    'wellness',
+  ];
+
   if (articles.length === 0) {
     return {
       topic,
@@ -125,6 +191,18 @@ export async function summarizeNews(
   // First, filter articles by basic relevance (keyword check)
   // This is a quick first pass to remove obviously irrelevant articles
   const topicLower = topic.toLowerCase().trim();
+  const isSportsTopic = SPORTS_TOPICS.some((sportsTopic) =>
+    topicLower.includes(sportsTopic.toLowerCase())
+  );
+  const isBusinessTopic = BUSINESS_TOPICS.some((bizTopic) =>
+    topicLower.includes(bizTopic.toLowerCase())
+  );
+  const isTechTopic = TECH_TOPICS.some((techTopic) =>
+    topicLower.includes(techTopic.toLowerCase())
+  );
+  const isHealthTopic = HEALTH_TOPICS.some((healthTopic) =>
+    topicLower.includes(healthTopic.toLowerCase())
+  );
   const topicKeywords = topicLower.split(/\s+/).filter(k => k.length > 2); // Filter out very short words
   const basicRelevanceFiltered = articles.filter((article) => {
     const searchText = `${article.title} ${article.description}`.toLowerCase();
@@ -184,8 +262,16 @@ export async function summarizeNews(
     };
   }
 
-  const format = isPaid ? 'paragraph' : 'bullet point';
-  const summaryCount = isPaid ? 5 : 3; // Exact numbers, not ranges
+  const format = (isSportsTopic || isBusinessTopic || isTechTopic || isHealthTopic) ? 'bullet point' : isPaid ? 'paragraph' : 'bullet point';
+  const summaryCount = isSportsTopic
+    ? (isPaid ? 5 : 3)
+    : isBusinessTopic
+      ? (isPaid ? 5 : 3)
+      : isTechTopic
+        ? (isPaid ? 5 : 3)
+        : isHealthTopic
+          ? (isPaid ? 5 : 3)
+          : isPaid ? 5 : 3; // Exact numbers, not ranges
 
   // Clear, structured prompt for free tier
   const freeTierInstructions = `For FREE TIER, return 1-3 summaries representing the most relevant and impactful points about "${topic}".
@@ -231,6 +317,176 @@ Example structure:
   ]
 }`;
 
+  const sportsFreeInstructions = `You are Snipit, a no-fluff sports news summarizer (FREE TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+Pick 1–3 DISTINCT updates that matter most for the topic. Prefer 3 if possible (never exceed 3).
+
+Style (must follow):
+- Each bullet must feel like a complete update, not a headline.
+- Write bullets to the point: what happened + key detail + why it matters (standings/playoffs/availability/next game).
+- Use scores/stats/records ONLY if explicitly included in the article text provided. Never guess.
+
+Quick Score Add-on (IMPORTANT):
+- If an article includes an actual game result with a score, format the start of the bullet as a one-line “quick score” like:
+  BOS 118 — NYK 111 (Final) | Tatum 34 pts | Celtics: 8–2 last 10
+- Keep it to ONE line, using " | " separators.
+- Include: score + status (Final/OT/etc). Add 1 standout stat line and 1 trend (streak/record/standing) ONLY if stated.
+- After the quick score line, add a short “so what” clause if needed (1 short sentence max) ONLY if supported by the article.
+
+Selection guidance:
+- For league topics (NBA/NFL/etc), prefer:
+  - 1–2 quick-score game updates (if scores are available in the provided article text), and
+  - 1 bigger storyline (trade/injury/suspension/coach quote/playoff scenario).
+- If scores are NOT present in the provided article text, do NOT fake them—just summarize the key development with why it matters.
+
+Output rules:
+- "title": short Snipit headline (6–10 words), not the original article headline.
+- "bullets": exactly 1 bullet string, up to 3 short sentences (sports can use 3).
+- "url" and "source" must match the best supporting article.
+- No duplicate titles, no repeated angles, no vague filler (“signals”, “could”) unless directly attributed.
+- IMPORTANT: Do NOT invent scores, stats, or records. Only include what is explicitly present in the provided article text.`;
+
+  const sportsPaidInstructions = `You are Snipit, a no-fluff sports news summarizer (PAID TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+Pick 4–5 DISTINCT updates that matter most for the topic. Prefer 5 if possible (never exceed 5).
+
+Style (must follow):
+- Each bullet must feel like a complete update, not a headline.
+- Write bullets to the point: what happened + key detail + why it matters (standings/playoffs/availability/next game).
+- Use scores/stats/records ONLY if explicitly included in the article text provided. Never guess.
+
+Quick Score Add-on (IMPORTANT):
+- If an article includes an actual game result with a score, format the start of the bullet as a one-line “quick score” like:
+  BOS 118 — NYK 111 (Final) | Tatum 34 pts | Celtics: 8–2 last 10
+- Keep it to ONE line, using " | " separators.
+- Include: score + status (Final/OT/etc). Add 1 standout stat line and 1 trend (streak/record/standing) ONLY if stated.
+- After the quick score line, add a short “so what” clause if needed (1 short sentence max) ONLY if supported by the article.
+
+Selection guidance:
+- For league topics (NBA/NFL/etc), prefer:
+  - 2–3 quick-score game updates (if scores are available in the provided article text), and
+  - 2 bigger storylines (trade/injury/suspension/coach quote/playoff scenario).
+- If scores are NOT present in the provided article text, do NOT fake them—just summarize the key development with why it matters.
+
+Output rules:
+- "title": short Snipit headline (6–10 words), not the original article headline.
+- "bullets": exactly 1 bullet string, up to 3 short sentences (sports can use 3).
+- "url" and "source" must match the best supporting article.
+- No duplicate titles, no repeated angles, no vague filler (“signals”, “could”) unless directly attributed.
+- IMPORTANT: Do NOT invent scores, stats, or records. Only include what is explicitly present in the provided article text.`;
+
+  const businessFreeInstructions = `You are Snipit, a no-fluff business/markets summarizer (FREE TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+Pick 1–3 DISTINCT updates that matter most for the topic. Prefer 3 if possible (never exceed 3).
+
+Style:
+- If the article contains price/%/points: include them. If not, do not invent.
+- If it’s a stock/crypto move and numbers are present, add an arrow: ↑ (up), ↓ (down), → (flat/mixed).
+- Every bullet must include the driver/catalyst (earnings, guidance, rates, regulation, lawsuit, deal, downgrade, etc.).
+- Add “so what” in one short clause: what changes for investors/businesses next.
+
+Output rules:
+- "title": short Snipit headline (6–10 words).
+- "bullets": exactly 1 bullet string, up to 3 short sentences.
+- "url" and "source" must match the best supporting article.
+- No repetition, no generic market clichés.`;
+
+  const businessPaidInstructions = `You are Snipit, a no-fluff business/markets summarizer (PAID TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+Pick 4–5 DISTINCT updates that matter most for the topic. Prefer 5 if possible (never exceed 5).
+
+Style:
+- If the article contains price/%/points: include them. If not, do not invent.
+- If it’s a stock/crypto move and numbers are present, add an arrow: ↑ (up), ↓ (down), → (flat/mixed).
+- Every bullet must include the driver/catalyst (earnings, guidance, rates, regulation, lawsuit, deal, downgrade, etc.).
+- Add “so what” in one short clause: what changes for investors/businesses next.
+
+Output rules:
+- "title": short Snipit headline (6–10 words).
+- "bullets": exactly 1 bullet string, up to 3 short sentences.
+- "url" and "source" must match the best supporting article.
+- No repetition, no generic market clichés.`;
+
+  const techFreeInstructions = `You are Snipit, a no-fluff technology summarizer (FREE TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+Pick 1–3 DISTINCT updates that matter most for the topic. Prefer 3 if possible (never exceed 3).
+
+Style:
+- Each bullet must give the full picture fast: what changed + who it impacts + why it matters.
+- Include 1 concrete detail when available (feature, timeline, pricing, regulation, breach scope), but only if explicitly stated.
+- For cybersecurity: state who’s affected + what users/orgs should do next (patch, rotate keys, etc.) if the article provides it.
+- Avoid hype words (“game-changing”, “revolutionary”) and avoid speculation unless directly attributed.
+
+Output rules:
+- "title": short Snipit headline (6–10 words).
+- "bullets": exactly 1 bullet string, up to 3 short sentences.
+- "url" and "source" must match the best supporting article.
+- No duplicate titles, no repeated angles.`;
+
+  const techPaidInstructions = `You are Snipit, a no-fluff technology summarizer (PAID TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+Pick 4–5 DISTINCT updates that matter most for the topic. Prefer 5 if possible (never exceed 5).
+
+Style:
+- Each bullet must give the full picture fast: what changed + who it impacts + why it matters.
+- Include 1 concrete detail when available (feature, timeline, pricing, regulation, breach scope), but only if explicitly stated.
+- For cybersecurity: state who’s affected + what users/orgs should do next (patch, rotate keys, etc.) if the article provides it.
+- Avoid hype words (“game-changing”, “revolutionary”) and avoid speculation unless directly attributed.
+
+Output rules:
+- "title": short Snipit headline (6–10 words).
+- "bullets": exactly 1 bullet string, up to 3 short sentences.
+- "url" and "source" must match the best supporting article.
+- No duplicate titles, no repeated angles.`;
+
+  const healthFreeInstructions = `You are Snipit, a no-fluff health & wellness summarizer (FREE TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+Pick 1–3 DISTINCT updates that matter most for the topic. Prefer 3 if possible (never exceed 3).
+
+Style:
+- Prioritize: new guideline changes, major study results, recalls/safety notices, and actionable advice backed by the article.
+- Each bullet must include: what happened + what it means for a normal person + what to do next (if the article supports it).
+- If it’s research, include study type/phase and the key result ONLY if explicitly stated.
+- No medical diagnosis language. No miracle framing.
+
+Output rules:
+- "title": short Snipit headline (6–10 words).
+- "bullets": exactly 1 bullet string, up to 3 short sentences.
+- "url" and "source" must match the best supporting article.
+- No repetition.`;
+
+  const healthPaidInstructions = `You are Snipit, a no-fluff health & wellness summarizer (PAID TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+Pick 4–5 DISTINCT updates that matter most for the topic. Prefer 5 if possible (never exceed 5).
+
+Style:
+- Prioritize: new guideline changes, major study results, recalls/safety notices, and actionable advice backed by the article.
+- Each bullet must include: what happened + what it means for a normal person + what to do next (if the article supports it).
+- If it’s research, include study type/phase and the key result ONLY if explicitly stated.
+- No medical diagnosis language. No miracle framing.
+
+Output rules:
+- "title": short Snipit headline (6–10 words).
+- "bullets": exactly 1 bullet string, up to 3 short sentences.
+- "url" and "source" must match the best supporting article.
+- No repetition.`;
+
   const paidTierInstructions = `For PAID TIER, return 4-5 articles. Each article must have:
 - A "title" field with the article title
 - A "summary" field with a 2-3 sentence paragraph summary
@@ -239,9 +495,27 @@ Example structure:
   const prompt = `Topic: ${topic}
 Format: ${format}
 
-You are summarizing news articles about "${topic}". From the articles below, ${isPaid 
-  ? `select the ${summaryCount} most relevant articles and provide concise, no-fluff paragraph summaries for each.` 
-  : `identify the 3 most relevant and impactful points about "${topic}" based on the articles provided. These 3 points must be DISTINCT, UNIQUE, and directly related to "${topic}". Each point should be substantial, informative, and contain no fluff or repetition.`} 
+You are summarizing news articles about "${topic}". From the articles below, ${
+    isSportsTopic
+      ? isPaid
+        ? 'apply the PAID sports instructions exactly as written. Focus on 4–5 distinct updates with quick-score lines when scores are provided in the article text, plus key storylines. Do not invent scores or stats.'
+        : 'apply the FREE sports instructions exactly as written. Focus on 1–3 distinct updates with quick-score lines when scores are provided in the article text, plus one key storyline. Do not invent scores or stats.'
+      : isBusinessTopic
+        ? isPaid
+          ? 'apply the PAID business/markets instructions exactly as written. Focus on 4–5 distinct updates with catalysts and include price/%/points only when provided. Use arrows for stock/crypto moves when numbers are present. Add a concise "so what" clause.'
+          : 'apply the FREE business/markets instructions exactly as written. Focus on 1–3 distinct updates with catalysts and include price/%/points only when provided. Use arrows for stock/crypto moves when numbers are present. Add a concise "so what" clause.'
+        : isTechTopic
+          ? isPaid
+            ? 'apply the PAID technology instructions exactly as written. Focus on 4–5 distinct updates with concrete details only when explicitly stated; include who it impacts and why it matters; for cybersecurity include who is affected and recommended actions if provided. Avoid hype/speculation.'
+            : 'apply the FREE technology instructions exactly as written. Focus on 1–3 distinct updates with concrete details only when explicitly stated; include who it impacts and why it matters; for cybersecurity include who is affected and recommended actions if provided. Avoid hype/speculation.'
+          : isHealthTopic
+            ? isPaid
+              ? 'apply the PAID health & wellness instructions exactly as written. Focus on 4–5 distinct updates, prioritizing guidelines, studies, recalls, and actionable advice with what it means for a normal person and what to do next. Include study type/phase and key result only if explicitly stated. No diagnosis language or miracle framing.'
+              : 'apply the FREE health & wellness instructions exactly as written. Focus on 1–3 distinct updates, prioritizing guidelines, studies, recalls, and actionable advice with what it means for a normal person and what to do next. Include study type/phase and key result only if explicitly stated. No diagnosis language or miracle framing.'
+            : isPaid
+              ? `select the ${summaryCount} most relevant articles and provide concise, no-fluff paragraph summaries for each.`
+              : `identify the 3 most relevant and impactful points about "${topic}" based on the articles provided. These 3 points must be DISTINCT, UNIQUE, and directly related to "${topic}". Each point should be substantial, informative, and contain no fluff or repetition.`
+  } 
 
 STRICT REQUIREMENTS:
 - Prioritize articles that are DIRECTLY and PRIMARILY about "${topic}"
@@ -254,7 +528,15 @@ STRICT REQUIREMENTS:
 - Prioritize the most important, impactful, and recent developments
 - IMPORTANT: You must return at least 1 summary if any articles are provided. Only return an empty array if absolutely no articles relate to "${topic}" at all
 
-${isPaid ? paidTierInstructions : freeTierInstructions}
+${isSportsTopic
+    ? (isPaid ? sportsPaidInstructions : sportsFreeInstructions)
+    : isBusinessTopic
+      ? (isPaid ? businessPaidInstructions : businessFreeInstructions)
+      : isTechTopic
+        ? (isPaid ? techPaidInstructions : techFreeInstructions)
+        : isHealthTopic
+          ? (isPaid ? healthPaidInstructions : healthFreeInstructions)
+          : isPaid ? paidTierInstructions : freeTierInstructions}
 
 CRITICAL: Return ONLY valid JSON. No markdown, no code blocks, no additional text. The JSON must be parseable.
 
@@ -286,9 +568,21 @@ URL: ${article.url}`;
         messages: [
         {
           role: 'system',
-          content: isPaid
-            ? `You are a news summarizer for paid tier. Return ONLY valid JSON with 4-5 articles about "${topic}". Prioritize articles where "${topic}" is the main subject, but if needed, select the most relevant articles available. Each article must have "title", "summary" (2-3 sentences, no fluff), "url", and "source". IMPORTANT: You must return at least 1 summary from the provided articles. Only return empty array if absolutely no articles relate to "${topic}". Ensure no duplicate titles or repeated information. No markdown, no code blocks.`
-            : `You are a news summarizer for free tier. Return ONLY valid JSON with 1-3 summaries (prefer 3, but return 1-2 if that's all available) about "${topic}". Prioritize summaries where "${topic}" is the main subject, but if needed, select the most relevant articles available. Each summary must have "title" (unique, no duplicates), "bullets" (array with exactly 1 string, 1-2 sentences, no fluff), "url", and "source". IMPORTANT: You must return at least 1 summary from the provided articles. Only return empty array if absolutely no articles relate to "${topic}". Ensure all points are DISTINCT and UNIQUE - no repetition. No markdown, no code blocks.`,
+          content: isSportsTopic
+            ? isPaid
+              ? `You are Snipit, a no-fluff sports news summarizer for PAID TIER. Return ONLY valid JSON with "summaries". Follow the paid sports instructions: pick 4-5 distinct updates (prefer 5, max 5); concise bullets (what happened + key detail + why it matters); include a quick-score line only when the provided article text contains an actual score; never invent scores, stats, or records; no markdown or code fences.`
+              : `You are Snipit, a no-fluff sports news summarizer for FREE TIER. Return ONLY valid JSON with "summaries". Follow the free sports instructions: pick 1-3 distinct updates (prefer 3, max 3); concise bullets (what happened + key detail + why it matters); include a quick-score line only when the provided article text contains an actual score; never invent scores, stats, or records; no markdown or code fences.`
+            : isBusinessTopic
+              ? isPaid
+                ? `You are Snipit, a no-fluff business/markets summarizer for PAID TIER. Return ONLY valid JSON with "summaries". Follow the paid business instructions: pick 4-5 distinct updates (prefer 5, max 5); bullets only; include price/%/points only if present; add arrows for stock/crypto moves when numbers exist; always include the driver/catalyst; add a concise "so what" clause; no markdown or code fences.`
+                : `You are Snipit, a no-fluff business/markets summarizer for FREE TIER. Return ONLY valid JSON with "summaries". Follow the free business instructions: pick 1-3 distinct updates (prefer 3, max 3); bullets only; include price/%/points only if present; add arrows for stock/crypto moves when numbers exist; always include the driver/catalyst; add a concise "so what" clause; no markdown or code fences.`
+              : isTechTopic
+                ? isPaid
+                  ? `You are Snipit, a no-fluff technology summarizer for PAID TIER. Return ONLY valid JSON with "summaries". Follow the paid technology instructions: pick 4-5 distinct updates (prefer 5, max 5); bullets only; give the full picture fast (what changed + who it impacts + why it matters); include one concrete detail only if explicitly stated; for cybersecurity, state who’s affected and recommended actions if provided; avoid hype/speculation; no markdown or code fences.`
+                  : `You are Snipit, a no-fluff technology summarizer for FREE TIER. Return ONLY valid JSON with "summaries". Follow the free technology instructions: pick 1-3 distinct updates (prefer 3, max 3); bullets only; give the full picture fast (what changed + who it impacts + why it matters); include one concrete detail only if explicitly stated; for cybersecurity, state who’s affected and recommended actions if provided; avoid hype/speculation; no markdown or code fences.`
+                : isPaid
+                  ? `You are a news summarizer for paid tier. Return ONLY valid JSON with 4-5 articles about "${topic}". Prioritize articles where "${topic}" is the main subject, but if needed, select the most relevant articles available. Each article must have "title", "summary" (2-3 sentences, no fluff), "url", and "source". IMPORTANT: You must return at least 1 summary from the provided articles. Only return empty array if absolutely no articles relate to "${topic}". Ensure no duplicate titles or repeated information. No markdown, no code blocks.`
+                  : `You are a news summarizer for free tier. Return ONLY valid JSON with 1-3 summaries (prefer 3, but return 1-2 if that's all available) about "${topic}". Prioritize summaries where "${topic}" is the main subject, but if needed, select the most relevant articles available. Each summary must have "title" (unique, no duplicates), "bullets" (array with exactly 1 string, 1-2 sentences, no fluff), "url", and "source". IMPORTANT: You must return at least 1 summary from the provided articles. Only return empty array if absolutely no articles relate to "${topic}". Ensure all points are DISTINCT and UNIQUE - no repetition. No markdown, no code blocks.`,
         },
           {
             role: 'user',
@@ -345,8 +639,26 @@ URL: ${article.url}`;
       ) {
         // For free tier: prefer 3 summaries, but accept 1-2 if that's all available
         // For paid tier: prefer 4-5 summaries, but accept fewer if needed
-        const preferredCount = isPaid ? 4 : 3;
-        const maxCount = isPaid ? 5 : 3;
+        // Sports, Business, Tech, Health: use bullet format for both tiers; counts differ by tier
+        const usePaidFormat = isPaid && !isSportsTopic && !isBusinessTopic && !isTechTopic && !isHealthTopic;
+        const preferredCount = isSportsTopic
+          ? isPaid ? 5 : 3
+          : isBusinessTopic
+            ? isPaid ? 5 : 3
+            : isTechTopic
+              ? isPaid ? 5 : 3
+              : isHealthTopic
+                ? isPaid ? 5 : 3
+            : usePaidFormat ? 4 : 3;
+        const maxCount = isSportsTopic
+          ? isPaid ? 5 : 3
+          : isBusinessTopic
+            ? isPaid ? 5 : 3
+            : isTechTopic
+              ? isPaid ? 5 : 3
+              : isHealthTopic
+                ? isPaid ? 5 : 3
+                : usePaidFormat ? 5 : 3;
         const minAcceptableCount = 1; // Accept 1 or more summaries
         
         let summaries = parsed.summaries;
@@ -361,27 +673,27 @@ URL: ${article.url}`;
             return false;
           }
           
-          if (!isPaid) {
-            // Free tier: MUST have bullets array with at least 1 item
+          if (!usePaidFormat) {
+            // Bulleted format (free tier or sports): MUST have bullets array with at least 1 item
             if (!s.bullets || !Array.isArray(s.bullets)) {
-              console.warn(`[OpenAI] Free tier summary missing bullets array:`, s.title);
+              console.warn(`[OpenAI] Bulleted summary missing bullets array:`, s.title);
               return false;
             }
             if (s.bullets.length < 1) {
-              console.warn(`[OpenAI] Free tier summary has no bullets:`, s.title);
+              console.warn(`[OpenAI] Bulleted summary has no bullets:`, s.title);
               return false;
             }
             // Ensure all bullets are non-empty strings
             const validBullets = s.bullets.filter((b: string) => typeof b === 'string' && b.trim().length > 0);
             if (validBullets.length < 1) {
-              console.warn(`[OpenAI] Free tier summary has invalid bullets:`, s.title);
+              console.warn(`[OpenAI] Bulleted summary has invalid bullets:`, s.title);
               return false;
             }
             // Keep all valid bullets (can be 1 or more)
             s.bullets = validBullets;
             return true;
           } else {
-            // Paid tier: MUST have summary field
+            // Paid paragraph format: MUST have summary field
             if (!s.summary || typeof s.summary !== 'string' || s.summary.trim().length === 0) {
               console.warn(`[OpenAI] Paid tier summary missing summary field:`, s.title);
               return false;
@@ -403,7 +715,7 @@ URL: ${article.url}`;
         }
         
         // Post-processing: Deduplicate titles and bullets to ensure uniqueness
-        const deduplicatedSummaries = deduplicateSummaries(validSummaries, isPaid);
+        const deduplicatedSummaries = deduplicateSummaries(validSummaries, usePaidFormat);
         
         // Use deduplicated summaries (even if fewer than preferred)
         const finalSummaries = deduplicatedSummaries.length > 0 
