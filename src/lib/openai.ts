@@ -156,6 +156,22 @@ export async function summarizeNews(
     'wellness',
   ];
 
+  const POLITICS_TOPICS = [
+    'politics',
+    'u.s. politics',
+    'us politics',
+    'global politics',
+    'policy updates',
+    'elections',
+    'legislative news',
+    'international law',
+    'diplomacy',
+    'europe',
+    'asia',
+    'conflict zones',
+    'international relations',
+  ];
+
   if (articles.length === 0) {
     return {
       topic,
@@ -202,6 +218,9 @@ export async function summarizeNews(
   );
   const isHealthTopic = HEALTH_TOPICS.some((healthTopic) =>
     topicLower.includes(healthTopic.toLowerCase())
+  );
+  const isPoliticsTopic = POLITICS_TOPICS.some((polTopic) =>
+    topicLower.includes(polTopic.toLowerCase())
   );
   const topicKeywords = topicLower.split(/\s+/).filter(k => k.length > 2); // Filter out very short words
   const basicRelevanceFiltered = articles.filter((article) => {
@@ -262,7 +281,7 @@ export async function summarizeNews(
     };
   }
 
-  const format = (isSportsTopic || isBusinessTopic || isTechTopic || isHealthTopic) ? 'bullet point' : isPaid ? 'paragraph' : 'bullet point';
+  const format = (isSportsTopic || isBusinessTopic || isTechTopic || isHealthTopic || isPoliticsTopic) ? 'bullet point' : isPaid ? 'paragraph' : 'bullet point';
   const summaryCount = isSportsTopic
     ? (isPaid ? 5 : 3)
     : isBusinessTopic
@@ -271,6 +290,8 @@ export async function summarizeNews(
         ? (isPaid ? 5 : 3)
         : isHealthTopic
           ? (isPaid ? 5 : 3)
+          : isPoliticsTopic
+            ? (isPaid ? 5 : 3)
           : isPaid ? 5 : 3; // Exact numbers, not ranges
 
   // Clear, structured prompt for free tier
@@ -487,6 +508,42 @@ Output rules:
 - "url" and "source" must match the best supporting article.
 - No repetition.`;
 
+  const politicsFreeInstructions = `You are Snipit, a no-fluff politics summarizer (FREE TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+Pick 1–3 DISTINCT updates that matter most for the topic. Prefer 3 if possible (never exceed 3).
+
+Style:
+- Each bullet must give the full picture fast: what happened + what changes + who it affects.
+- Include the “why now” driver (vote, court ruling, agency action, diplomatic move, scandal, etc.).
+- Include numbers (vote counts, poll numbers, dates) ONLY if explicitly stated in the article text provided. Never guess.
+- Avoid speculation unless the article itself frames it as such and you attribute it (“according to…”, “analysts say…”).
+
+Output rules:
+- "title": short Snipit headline (6–10 words), not the original article headline.
+- "bullets": exactly 1 bullet string, up to 3 short sentences.
+- "url" and "source" must match the best supporting article.
+- No duplicate titles, no repeated angles, no fluff.`;
+
+  const politicsPaidInstructions = `You are Snipit, a no-fluff politics summarizer (PAID TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+Pick 4–5 DISTINCT updates that matter most for the topic. Prefer 5 if possible (never exceed 5).
+
+Style:
+- Each bullet must give the full picture fast: what happened + what changes + who it affects.
+- Include the “why now” driver (vote, court ruling, agency action, diplomatic move, scandal, etc.).
+- Include numbers (vote counts, poll numbers, dates) ONLY if explicitly stated in the article text provided. Never guess.
+- Avoid speculation unless the article itself frames it as such and you attribute it (“according to…”, “analysts say…”).
+
+Output rules:
+- "title": short Snipit headline (6–10 words), not the original article headline.
+- "bullets": exactly 1 bullet string, up to 3 short sentences.
+- "url" and "source" must match the best supporting article.
+- No duplicate titles, no repeated angles, no fluff.`;
+
   const paidTierInstructions = `For PAID TIER, return 4-5 articles. Each article must have:
 - A "title" field with the article title
 - A "summary" field with a 2-3 sentence paragraph summary
@@ -512,9 +569,13 @@ You are summarizing news articles about "${topic}". From the articles below, ${
             ? isPaid
               ? 'apply the PAID health & wellness instructions exactly as written. Focus on 4–5 distinct updates, prioritizing guidelines, studies, recalls, and actionable advice with what it means for a normal person and what to do next. Include study type/phase and key result only if explicitly stated. No diagnosis language or miracle framing.'
               : 'apply the FREE health & wellness instructions exactly as written. Focus on 1–3 distinct updates, prioritizing guidelines, studies, recalls, and actionable advice with what it means for a normal person and what to do next. Include study type/phase and key result only if explicitly stated. No diagnosis language or miracle framing.'
-            : isPaid
-              ? `select the ${summaryCount} most relevant articles and provide concise, no-fluff paragraph summaries for each.`
-              : `identify the 3 most relevant and impactful points about "${topic}" based on the articles provided. These 3 points must be DISTINCT, UNIQUE, and directly related to "${topic}". Each point should be substantial, informative, and contain no fluff or repetition.`
+            : isPoliticsTopic
+              ? isPaid
+                ? 'apply the PAID politics instructions exactly as written. Focus on 4–5 distinct updates; full picture (what happened + what changes + who it affects); include “why now” drivers; include numbers only if provided; attribute speculation.'
+                : 'apply the FREE politics instructions exactly as written. Focus on 1–3 distinct updates; full picture (what happened + what changes + who it affects); include “why now” drivers; include numbers only if provided; attribute speculation.'
+              : isPaid
+                ? `select the ${summaryCount} most relevant articles and provide concise, no-fluff paragraph summaries for each.`
+                : `identify the 3 most relevant and impactful points about "${topic}" based on the articles provided. These 3 points must be DISTINCT, UNIQUE, and directly related to "${topic}". Each point should be substantial, informative, and contain no fluff or repetition.`
   } 
 
 STRICT REQUIREMENTS:
@@ -536,7 +597,9 @@ ${isSportsTopic
         ? (isPaid ? techPaidInstructions : techFreeInstructions)
         : isHealthTopic
           ? (isPaid ? healthPaidInstructions : healthFreeInstructions)
-          : isPaid ? paidTierInstructions : freeTierInstructions}
+          : isPoliticsTopic
+            ? (isPaid ? politicsPaidInstructions : politicsFreeInstructions)
+            : isPaid ? paidTierInstructions : freeTierInstructions}
 
 CRITICAL: Return ONLY valid JSON. No markdown, no code blocks, no additional text. The JSON must be parseable.
 
@@ -639,8 +702,8 @@ URL: ${article.url}`;
       ) {
         // For free tier: prefer 3 summaries, but accept 1-2 if that's all available
         // For paid tier: prefer 4-5 summaries, but accept fewer if needed
-        // Sports, Business, Tech, Health: use bullet format for both tiers; counts differ by tier
-        const usePaidFormat = isPaid && !isSportsTopic && !isBusinessTopic && !isTechTopic && !isHealthTopic;
+        // Sports, Business, Tech, Health, Politics: use bullet format for both tiers; counts differ by tier
+        const usePaidFormat = isPaid && !isSportsTopic && !isBusinessTopic && !isTechTopic && !isHealthTopic && !isPoliticsTopic;
         const preferredCount = isSportsTopic
           ? isPaid ? 5 : 3
           : isBusinessTopic
@@ -649,6 +712,8 @@ URL: ${article.url}`;
               ? isPaid ? 5 : 3
               : isHealthTopic
                 ? isPaid ? 5 : 3
+                : isPoliticsTopic
+                  ? isPaid ? 5 : 3
             : usePaidFormat ? 4 : 3;
         const maxCount = isSportsTopic
           ? isPaid ? 5 : 3
@@ -658,7 +723,9 @@ URL: ${article.url}`;
               ? isPaid ? 5 : 3
               : isHealthTopic
                 ? isPaid ? 5 : 3
-                : usePaidFormat ? 5 : 3;
+                : isPoliticsTopic
+                  ? isPaid ? 5 : 3
+                  : usePaidFormat ? 5 : 3;
         const minAcceptableCount = 1; // Accept 1 or more summaries
         
         let summaries = parsed.summaries;
