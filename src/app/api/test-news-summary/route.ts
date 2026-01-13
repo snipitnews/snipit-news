@@ -48,15 +48,32 @@ export async function GET(request: NextRequest) {
 
     // Generate summaries (using free tier format by default)
     console.log(`[Test News Summary] Generating summaries...`);
-    const summary = await summarizeNews(topic, articles, false);
+    let summary;
+    try {
+      summary = await summarizeNews(topic, articles, false);
+    } catch (error) {
+      console.error(`[Test News Summary] Error during summarization:`, error);
+      return NextResponse.json(
+        {
+          topic,
+          error: 'Failed to generate summaries',
+          articlesFound: articles.length,
+          errorDetails: error instanceof Error ? error.message : String(error),
+          summaries: [],
+        },
+        { status: 500 }
+      );
+    }
 
     if (summary.summaries.length === 0) {
+      console.warn(`[Test News Summary] No summaries generated despite ${articles.length} articles found`);
       return NextResponse.json(
         {
           topic,
           error: 'No summaries generated',
           articlesFound: articles.length,
           summaries: [],
+          hint: 'Check console logs for [OpenAI] warnings about invalid summaries',
         },
         { status: 404 }
       );
@@ -72,14 +89,24 @@ export async function GET(request: NextRequest) {
       source: s.source,
     }));
 
-    return NextResponse.json(
+    // Return prettified JSON for better readability in curl/browser
+    return new NextResponse(
+      JSON.stringify(
+        {
+          topic,
+          articlesFound: articles.length,
+          summariesCount: summary.summaries.length,
+          summaries: bullets,
+        },
+        null,
+        2
+      ),
       {
-        topic,
-        articlesFound: articles.length,
-        summariesCount: summary.summaries.length,
-        summaries: bullets,
-      },
-      { status: 200 }
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
     );
   } catch (error) {
     console.error('[Test News Summary] Error:', error);
