@@ -40,10 +40,10 @@ interface BatchResults {
   skipReasons: string[];
 }
 
-// Maximum execution time before returning (45 seconds to leave buffer for Vercel's 60s limit)
-const MAX_EXECUTION_TIME_MS = 45000;
-// Maximum users to process in one batch before returning
-const MAX_BATCH_SIZE = 5;
+// Maximum execution time before returning (50 seconds to leave buffer for Vercel's 60s limit)
+const MAX_EXECUTION_TIME_MS = 50000;
+// Maximum users to process in one batch before returning (increased from 5 to 10)
+const MAX_BATCH_SIZE = 10;
 
 // Process a single user using pre-fetched news data (extracted for batch processing)
 async function processUser(
@@ -97,18 +97,19 @@ async function processUser(
 
     if (summaries.length === 0) {
       result.skipped = true;
-      result.skipReason = `No news found for user ${user.email}`;
+      result.skipReason = `No news found for user ${user.email} (topics: ${topics.join(', ')})`;
+      console.log(`[Cron] Skipping ${user.email}: No summaries generated for topics: ${topics.join(', ')}`);
       return result;
     }
 
     // Send email digest
-    const emailSent = await sendNewsDigest(
+    const emailResult = await sendNewsDigest(
       user.email,
       summaries,
       user.subscription_tier === 'paid'
     );
 
-    if (emailSent) {
+    if (emailResult.success) {
       // Store in email archive
       try {
         await getSupabaseAdmin()
@@ -121,16 +122,18 @@ async function processUser(
           } as never);
       } catch (archiveError) {
         console.error(
-          `Failed to archive email for ${user.email}:`,
+          `[Cron] Failed to archive email for ${user.email}:`,
           archiveError
         );
+        // Don't fail the whole operation if archiving fails
       }
 
       result.successful = true;
-      console.log(`Successfully sent digest to ${user.email}`);
+      console.log(`[Cron] ✅ Successfully sent digest to ${user.email} (${summaries.length} topics)`);
     } else {
-      result.error = `Failed to send email to ${user.email}`;
-      console.error(`Failed to send email to ${user.email}`);
+      const errorMsg = emailResult.error || 'Unknown email error';
+      result.error = `Failed to send email to ${user.email}: ${errorMsg}`;
+      console.error(`[Cron] ❌ ${result.error}`, emailResult.details ? `Details: ${JSON.stringify(emailResult.details)}` : '');
     }
   } catch (error) {
     result.error = `Error processing user ${user.email}: ${error}`;
@@ -154,6 +157,7 @@ export async function GET(request: NextRequest) {
     console.log('Starting daily digest process...');
 
     // Get all users with topics and their email settings
+    // Also ensure users without email settings get them created
     const { data: users, error: usersError } = (await getSupabaseAdmin()
       .from('users')
       .select(
@@ -175,6 +179,41 @@ export async function GET(request: NextRequest) {
       data: UserWithRelations[] | null;
       error: unknown;
     };
+
+    // Ensure all users have email settings (create if missing)
+    if (users && users.length > 0) {
+      for (const user of users) {
+        if (!user.user_email_settings || user.user_email_settings.length === 0) {
+          console.log(`[Cron] Creating missing email settings for user ${user.email}`);
+          try {
+            await getSupabaseAdmin()
+              .from('user_email_settings')
+              .upsert(
+                {
+                  user_id: user.id,
+                  delivery_time: '08:30:00-05:00',
+                  timezone: 'America/New_York',
+                  paused: false,
+                } as never,
+                {
+                  onConflict: 'user_id',
+                }
+              );
+            // Refresh user's email settings
+            const { data: settings } = await getSupabaseAdmin()
+              .from('user_email_settings')
+              .select('paused, delivery_time, timezone')
+              .eq('user_id', user.id)
+              .single();
+            if (settings) {
+              user.user_email_settings = [settings as EmailSetting];
+            }
+          } catch (settingsError) {
+            console.error(`[Cron] Failed to create email settings for ${user.email}:`, settingsError);
+          }
+        }
+      }
+    }
 
     if (usersError) {
       console.error('Error fetching users:', usersError);
@@ -267,9 +306,10 @@ export async function GET(request: NextRequest) {
         results.errors.push(result.error);
       }
 
-      // Add delay between users to respect rate limits (reduced from 2s to 1s)
+      // Add delay between users to respect rate limits
+      // Reduced delay since we're processing more users per batch
       if (i < batchUsers.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 800));
       }
     }
 
@@ -278,20 +318,27 @@ export async function GET(request: NextRequest) {
     const status =
       results.failed > 0 && results.successful === 0 ? 'failed' : 'success';
 
-    // Log execution results to database
+    // Log execution results to database with detailed information
     try {
+      // Include skip reasons in errors array for better visibility
+      const allErrors = [
+        ...results.errors,
+        ...results.skipReasons.map(reason => `SKIPPED: ${reason}`)
+      ];
+      
       await supabase.from('cron_job_logs').insert({
         status,
         processed_count: results.processed,
         successful_count: results.successful,
         failed_count: results.failed,
         skipped_count: results.skipped,
-        errors: results.errors,
-        skip_reasons: results.skipReasons,
+        errors: allErrors.length > 0 ? allErrors : [],
         execution_time_ms: executionTime,
       } as never);
+      
+      console.log(`[Cron] Logged execution: ${results.successful} successful, ${results.failed} failed, ${results.skipped} skipped`);
     } catch (logError) {
-      console.error('Failed to log cron job execution:', logError);
+      console.error('[Cron] Failed to log cron job execution:', logError);
       // Don't fail the request if logging fails
     }
 
@@ -306,13 +353,14 @@ export async function GET(request: NextRequest) {
       const nextUrl = `${baseUrl}/api/cron/send-digests?continuation=${nextIndex}`;
 
       // Trigger next batch in background (don't await)
+      console.log(`[Cron] Triggering next batch: ${nextIndex}/${users.length} users remaining`);
       fetch(nextUrl, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${process.env.CRON_SECRET}`,
         },
       }).catch((err) => {
-        console.error('Failed to trigger next batch:', err);
+        console.error(`[Cron] ❌ Failed to trigger next batch (index ${nextIndex}):`, err);
       });
 
       return NextResponse.json({

@@ -470,10 +470,10 @@ export default function LandingPage() {
                   { value: 'AI', label: 'Powered' },
                 ].map((stat, i) => (
                   <div key={i} className="text-center">
-                    <div className="text-3xl md:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#FFA500] to-[#FF6B47] mb-2">
+                    <div className="text-3xl md:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#FFB84D] to-[#FF8C69] mb-2">
                       {stat.value}
                     </div>
-                    <div className="text-sm text-white/50">{stat.label}</div>
+                    <div className="text-sm text-white/90">{stat.label}</div>
                   </div>
                 ))}
               </motion.div>

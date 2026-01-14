@@ -127,13 +127,13 @@ export async function POST(request: NextRequest) {
 
     // Send email digest
     console.log(`[Test Email] Sending email to ${userData.email}...`);
-    const emailSent = await sendNewsDigest(
+    const emailResult = await sendNewsDigest(
       userData.email,
       summaries,
       userData.subscription_tier === 'paid'
     );
 
-    if (emailSent) {
+    if (emailResult.success) {
       // Store in email archive
       try {
         await getSupabaseAdmin()
@@ -158,11 +158,13 @@ export async function POST(request: NextRequest) {
         summariesCount: summaries.length,
       });
     } else {
-      console.error(`[Test Email] ❌ Failed to send email`);
+      const errorMsg = emailResult.error || 'Unknown error';
+      console.error(`[Test Email] ❌ Failed to send email: ${errorMsg}`, emailResult.details);
       return NextResponse.json(
         {
           error: 'Failed to send email',
-          details: 'Check your Resend API key and configuration.',
+          details: errorMsg,
+          resendDetails: emailResult.details,
         },
         { status: 500 }
       );

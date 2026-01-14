@@ -8,8 +8,14 @@ export async function sendNewsDigest(
   email: string,
   summaries: NewsSummary[],
   isPaid: boolean = false
-): Promise<boolean> {
+): Promise<{ success: boolean; error?: string; details?: unknown }> {
   try {
+    if (!process.env.RESEND_API_KEY) {
+      const errorMsg = 'RESEND_API_KEY is not configured';
+      console.error(`[Email] ${errorMsg}`);
+      return { success: false, error: errorMsg };
+    }
+
     const html = generateEmailHTML(email, summaries, isPaid);
 
     const { data, error } = await resend.emails.send({
@@ -20,15 +26,26 @@ export async function sendNewsDigest(
     });
 
     if (error) {
-      console.error('Error sending email:', error);
-      return false;
+      const errorDetails = typeof error === 'object' ? JSON.stringify(error, null, 2) : error;
+      console.error(`[Email] Failed to send to ${email}:`, errorDetails);
+      return { 
+        success: false, 
+        error: `Resend API error: ${typeof error === 'object' && 'message' in error ? error.message : String(error)}`,
+        details: error 
+      };
     }
 
-    console.log('Email sent successfully:', data);
-    return true;
+    console.log(`[Email] Successfully sent to ${email}`, data?.id ? `(ID: ${data.id})` : '');
+    return { success: true, details: data };
   } catch (error) {
-    console.error('Error sending email:', error);
-    return false;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error(`[Email] Exception sending to ${email}:`, errorMessage, errorStack);
+    return { 
+      success: false, 
+      error: errorMessage,
+      details: error 
+    };
   }
 }
 
