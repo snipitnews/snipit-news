@@ -121,8 +121,12 @@ export async function GET(request: NextRequest) {
     if (sendEmail && emailParam) {
       try {
         console.log(`[Test Summaries] Sending static test email to ${emailParam}...`);
-        emailSent = await sendNewsDigest(emailParam, staticSummaries, false); // false = free tier
+        const result = await sendNewsDigest(emailParam, staticSummaries, false); // false = free tier
+        emailSent = result.success;
         console.log(`[Test Summaries] Email sent: ${emailSent}`);
+        if (!result.success && result.error) {
+          console.error(`[Test Summaries] Email error: ${result.error}`);
+        }
       } catch (error) {
         console.error('[Test Summaries] Error sending static test email:', error);
       }
