@@ -10,18 +10,22 @@ function AuthCallbackContent() {
 
   useEffect(() => {
     const handleAuth = async () => {
+      // This callback only handles OTP flows (magiclink/signup) that come from /auth/confirm
+      // The server-side /auth/confirm route handles verifyOtp and redirects here with success=true
+      // We do NOT handle PKCE code exchange here - that's handled elsewhere
+      
       // Check if server-side verification was successful
       const success = searchParams.get('success');
 
       if (success !== 'true') {
-        console.error('❌ No success parameter found');
+        console.error('❌ [Auth Callback] No success parameter found - invalid OTP flow');
         router.push(
           '/auth/auth-code-error?error=missing_success_param&details=Authentication callback is missing required parameters.'
         );
         return;
       }
 
-      console.log('✅ Server-side verification successful, waiting for session...');
+      console.log('✅ [Auth Callback] Server-side OTP verification successful, waiting for session...');
       // Give the server a moment to set cookies, then try to get session
       await new Promise(resolve => setTimeout(resolve, 500));
       

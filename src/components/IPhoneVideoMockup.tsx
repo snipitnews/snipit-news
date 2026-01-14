@@ -11,6 +11,11 @@ interface IPhoneVideoMockupProps {
   className?: string;
 }
 
+// Default video source - use Cloudinary URL if available, otherwise local path
+// NEXT_PUBLIC_ variables are available in client components in Next.js
+const DEFAULT_VIDEO_SRC = 
+  process.env.NEXT_PUBLIC_PRODUCT_VIDEO_URL || '/logos/Product Animation.mp4';
+
 const DEVICE_SPECS = {
   '14': {
     w: 390,
@@ -75,7 +80,7 @@ function shade(hex: string, pct: number): string {
 }
 
 export const IPhoneVideoMockup: React.FC<IPhoneVideoMockupProps> = ({
-  videoSrc = '/logos/Product Animation.mp4',
+  videoSrc = DEFAULT_VIDEO_SRC,
   model = '15-pro',
   color = 'space-black',
   className,
