@@ -281,10 +281,10 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
                     </table>
                     
                     <!-- Bullets (Template Style) -->
-                    ${topicSummary.summaries.map((article) => {
+                    ${(() => {
                       if (isPaid) {
                         // Paid: paragraph format with article title
-                        return `
+                        return topicSummary.summaries.map((article) => `
                     <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:30px">
                       <tbody>
                         <tr>
@@ -298,40 +298,42 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
                         </tr>
                       </tbody>
                     </table>
-                    `;
+                    `).join('');
                       } else {
-                        // Free: Template style - each bullet has logo, bold orange title, and description
-                        let bullets: string[] = [];
+                        // Free: Group articles by title/URL to avoid duplicate titles
+                        // Group summaries by title to combine bullets from the same article
+                        const groupedArticles = new Map<string, typeof topicSummary.summaries>();
                         
-                        // Check if article has bullets array (new format from OpenAI)
-                        if (article.bullets && Array.isArray(article.bullets) && article.bullets.length > 0) {
-                          bullets = article.bullets;
-                        } else {
-                          // Fallback: If no bullets array, use the summary as a single bullet
-                          // Don't try to split it into multiple bullets as that causes fragmentation
-                          const summaryText = article.summary || '';
-                          if (summaryText.trim().length > 0) {
-                            bullets = [summaryText.trim()];
-                          } else {
-                            // If no summary, skip this article
+                        topicSummary.summaries.forEach((article) => {
+                          // Use title as the key to group articles
+                          const key = article.title;
+                          
+                          if (!groupedArticles.has(key)) {
+                            groupedArticles.set(key, []);
+                          }
+                          groupedArticles.get(key)!.push(article);
+                        });
+                        
+                        // Render each unique article with all its bullets grouped together
+                        return Array.from(groupedArticles.entries()).map(([title, articles]) => {
+                          // Use the first article's data (they should all have the same title/url)
+                          const firstArticle = articles[0];
+                          
+                          // Collect all bullets from all articles with this title
+                          const allBullets: string[] = [];
+                          articles.forEach((article) => {
+                            if (article.bullets && Array.isArray(article.bullets) && article.bullets.length > 0) {
+                              allBullets.push(...article.bullets);
+                            } else if (article.summary) {
+                              allBullets.push(article.summary.trim());
+                            }
+                          });
+                          
+                          if (allBullets.length === 0) {
                             return '';
                           }
-                        }
-                        
-                        // Format bullets in template style: logo + bold orange title + description
-                        // Each bullet from the array gets its own row, all with the same article title
-                        return bullets.map((bullet, index) => {
-                          // Remove leading bullet characters if present
-                          const cleanBullet = bullet.replace(/^[•\-\*]\s*/, '').trim();
                           
-                          // Skip empty bullets
-                          if (!cleanBullet || cleanBullet.length === 0) {
-                            return '';
-                          }
-                          
-                          // Description is the full bullet text
-                          const description = cleanBullet;
-                          
+                          // Show title once, then all bullets below it with visual bullet points
                           return `
                     <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:24px">
                       <tbody>
@@ -340,8 +342,27 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
                             <img src="https://res.cloudinary.com/dgqg2myag/image/upload/v1748662914/snipit-logo-black_fttbsx.png" alt="•" style="display:block;outline:none;border:none;text-decoration:none;height:20px;width:20px" />
                           </td>
                           <td style="font-family:Raleway,sans-serif;vertical-align:top">
-                            <a href="${article.url}" style="color:#fe7e4c;text-decoration-line:none;font-weight:bold;font-size:18px;margin-top:0;margin-bottom:6px;display:block;line-height:24px" target="_blank">${article.title}</a>
-                            <p style="font-size:16px;line-height:22px;margin:0;letter-spacing:0;font-weight:400;color:#000000">${description}</p>
+                            <a href="${firstArticle.url}" style="color:#fe7e4c;text-decoration-line:none;font-weight:bold;font-size:18px;margin-top:0;margin-bottom:6px;display:block;line-height:24px" target="_blank">${title}</a>
+                            ${allBullets.map((bullet) => {
+                              const cleanBullet = bullet.replace(/^[•\-\*]\s*/, '').trim();
+                              if (!cleanBullet || cleanBullet.length === 0) {
+                                return '';
+                              }
+                              // Render each bullet with a visual bullet point
+                              return `
+                            <table align="left" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:8px">
+                              <tbody>
+                                <tr>
+                                  <td style="width:20px;vertical-align:top;padding-top:4px">
+                                    <span style="color:#000000;font-size:16px;line-height:22px;">•</span>
+                                  </td>
+                                  <td style="vertical-align:top;padding-top:0">
+                                    <p style="font-size:16px;line-height:22px;margin:0;letter-spacing:0;font-weight:400;color:#000000;word-wrap:break-word;overflow-wrap:break-word;">${cleanBullet}</p>
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>`;
+                            }).join('')}
                           </td>
                         </tr>
                       </tbody>
@@ -349,7 +370,7 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
                     `;
                         }).join('');
                       }
-                    }).join('')}
+                    })()}
                   </td>
                 </tr>
               </tbody>

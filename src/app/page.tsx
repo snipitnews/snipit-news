@@ -72,8 +72,38 @@ export default function LandingPage() {
       }
     });
 
+    // Listen for auth success from other tabs (magic link opened in new tab)
+    let channel: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        channel = new BroadcastChannel('snipit-auth');
+        channel.onmessage = (event) => {
+          if (event.data.type === 'AUTH_SUCCESS') {
+            console.log('🔔 Auth success received from another tab, refreshing...');
+            // Refresh the page to pick up the new session
+            checkUserStatus();
+          }
+        };
+      }
+    } catch (e) {
+      console.warn('BroadcastChannel not supported:', e);
+    }
+
+    // Fallback: Listen for localStorage changes (for browsers without BroadcastChannel)
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === 'snipit-auth-success' && event.newValue) {
+        console.log('🔔 Auth success detected via localStorage, refreshing...');
+        checkUserStatus();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
     return () => {
       subscription.unsubscribe();
+      if (channel) {
+        channel.close();
+      }
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
