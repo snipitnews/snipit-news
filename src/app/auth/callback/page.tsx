@@ -94,6 +94,19 @@ function AuthCallbackContent() {
         .select('id')
         .eq('user_id', session.user.id);
 
+      // Broadcast auth success to other tabs (e.g., the original login tab)
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const channel = new BroadcastChannel('snipit-auth');
+          channel.postMessage({ type: 'AUTH_SUCCESS', userId: session.user.id });
+          channel.close();
+        }
+        // Also use localStorage as fallback for browsers without BroadcastChannel
+        localStorage.setItem('snipit-auth-success', Date.now().toString());
+      } catch (broadcastError) {
+        console.warn('Could not broadcast auth success:', broadcastError);
+      }
+
       router.push(existingTopics && existingTopics.length > 0 ? '/' : '/topics');
     };
 

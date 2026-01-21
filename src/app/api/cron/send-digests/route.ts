@@ -45,6 +45,34 @@ const MAX_EXECUTION_TIME_MS = 50000;
 // Maximum users to process in one batch before returning (increased from 5 to 10)
 const MAX_BATCH_SIZE = 10;
 
+// Log digest failure to database
+async function logDigestFailure(
+  userId: string,
+  topics: string[],
+  failureReason: string,
+  failureType: 'fetch_error' | 'summary_error' | 'email_error' | 'unknown',
+  errorDetails?: any
+): Promise<void> {
+  try {
+    await getSupabaseAdmin()
+      .from('digest_failures')
+      .insert({
+        user_id: userId,
+        failure_reason: failureReason,
+        failure_type: failureType,
+        topics: topics,
+        error_details: errorDetails ? JSON.stringify(errorDetails) : null,
+        retry_count: 0,
+        resolved: false,
+      } as never);
+
+    console.log(`[Cron] Logged digest failure for user ${userId}: ${failureReason}`);
+  } catch (error) {
+    console.error(`[Cron] Failed to log digest failure:`, error);
+    // Don't fail the whole process if logging fails
+  }
+}
+
 // Process a single user using pre-fetched news data (extracted for batch processing)
 async function processUser(
   user: UserWithRelations,
@@ -81,21 +109,40 @@ async function processUser(
 
     // Generate summaries for each topic using pre-fetched news data
     const summaries = [];
+    let hadSummaryErrors = false;
+
     for (const topic of topics) {
       const articles = newsData[topic] || [];
       if (articles.length > 0) {
-        const summary = await summarizeNews(
-          topic,
-          articles,
-          user.subscription_tier === 'paid'
-        );
-        if (summary.summaries.length > 0) {
-          summaries.push(summary);
+        try {
+          const summary = await summarizeNews(
+            topic,
+            articles,
+            user.subscription_tier === 'paid'
+          );
+          if (summary.summaries.length > 0) {
+            summaries.push(summary);
+          }
+        } catch (summaryError) {
+          console.error(`[Cron] Error generating summary for topic "${topic}":`, summaryError);
+          hadSummaryErrors = true;
+          // Continue with other topics
         }
       }
     }
 
     if (summaries.length === 0) {
+      // Log failure if we had errors, skip if just no news
+      if (hadSummaryErrors) {
+        await logDigestFailure(
+          user.id,
+          topics,
+          `Failed to generate summaries for topics: ${topics.join(', ')}`,
+          'summary_error',
+          { message: 'All summary generation attempts failed' }
+        );
+      }
+
       result.skipped = true;
       result.skipReason = `No news found for user ${user.email} (topics: ${topics.join(', ')})`;
       console.log(`[Cron] Skipping ${user.email}: No summaries generated for topics: ${topics.join(', ')}`);
@@ -134,10 +181,30 @@ async function processUser(
       const errorMsg = emailResult.error || 'Unknown email error';
       result.error = `Failed to send email to ${user.email}: ${errorMsg}`;
       console.error(`[Cron] ❌ ${result.error}`, emailResult.details ? `Details: ${JSON.stringify(emailResult.details)}` : '');
+
+      // Log email failure to database
+      await logDigestFailure(
+        user.id,
+        topics,
+        errorMsg,
+        'email_error',
+        emailResult.details
+      );
     }
   } catch (error) {
-    result.error = `Error processing user ${user.email}: ${error}`;
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    result.error = `Error processing user ${user.email}: ${errorMsg}`;
     console.error(result.error);
+
+    // Log unknown error to database
+    const topics = user.user_topics?.map((ut) => ut.topic_name) || [];
+    await logDigestFailure(
+      user.id,
+      topics,
+      errorMsg,
+      'unknown',
+      { stack: error instanceof Error ? error.stack : undefined }
+    );
   }
 
   return result;
