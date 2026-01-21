@@ -1,11 +1,18 @@
 {
   "crons": [
     {
+      "path": "/api/cron/warm-cache",
+      "schedule": "0 11 * * *"
+    },
+    {
       "path": "/api/cron/send-digests",
       "schedule": "30 13 * * *"
     }
   ],
   "functions": {
+    "src/app/api/cron/warm-cache/route.ts": {
+      "maxDuration": 60
+    },
     "src/app/api/cron/send-digests/route.ts": {
       "maxDuration": 60
     }
