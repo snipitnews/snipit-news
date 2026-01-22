@@ -40,10 +40,25 @@ interface BatchResults {
   skipReasons: string[];
 }
 
-// Maximum execution time before returning (50 seconds to leave buffer for Vercel's 60s limit)
-const MAX_EXECUTION_TIME_MS = 50000;
-// Maximum users to process in one batch before returning (increased from 5 to 10)
+// Maximum users to process in one batch before returning
 const MAX_BATCH_SIZE = 10;
+// Timeout for individual summarization calls (15 seconds)
+const SUMMARIZATION_TIMEOUT_MS = 15000;
+
+// Utility function to wrap promises with a timeout
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    )
+  );
+  return Promise.race([promise, timeoutPromise]);
+}
 
 // Log digest failure to database
 async function logDigestFailure(
@@ -107,27 +122,42 @@ async function processUser(
       `Processing user ${user.email} with topics: ${topics.join(', ')}`
     );
 
-    // Generate summaries for each topic using pre-fetched news data
-    const summaries = [];
+    // Generate summaries for each topic using pre-fetched news data (PARALLELIZED)
+    const isPaid = user.subscription_tier === 'paid';
+    const topicsWithArticles = topics.filter(topic => (newsData[topic] || []).length > 0);
+
+    // Process all topics in parallel with timeout protection
+    const summaryPromises = topicsWithArticles.map(async (topic) => {
+      try {
+        const summary = await withTimeout(
+          summarizeNews(topic, newsData[topic], isPaid),
+          SUMMARIZATION_TIMEOUT_MS,
+          `Summarization for "${topic}"`
+        );
+        return { topic, summary, error: null };
+      } catch (error) {
+        console.error(`[Cron] Error generating summary for topic "${topic}":`, error);
+        return { topic, summary: null, error };
+      }
+    });
+
+    const summaryResults = await Promise.allSettled(summaryPromises);
+
+    const summaries: Awaited<ReturnType<typeof summarizeNews>>[] = [];
     let hadSummaryErrors = false;
 
-    for (const topic of topics) {
-      const articles = newsData[topic] || [];
-      if (articles.length > 0) {
-        try {
-          const summary = await summarizeNews(
-            topic,
-            articles,
-            user.subscription_tier === 'paid'
-          );
-          if (summary.summaries.length > 0) {
-            summaries.push(summary);
-          }
-        } catch (summaryError) {
-          console.error(`[Cron] Error generating summary for topic "${topic}":`, summaryError);
+    for (const settledResult of summaryResults) {
+      if (settledResult.status === 'fulfilled') {
+        const { summary, error } = settledResult.value;
+        if (error) {
           hadSummaryErrors = true;
-          // Continue with other topics
+        } else if (summary && summary.summaries.length > 0) {
+          summaries.push(summary);
         }
+      } else {
+        // Promise itself rejected (shouldn't happen with our try/catch, but handle it)
+        hadSummaryErrors = true;
+        console.error(`[Cron] Unexpected summary promise rejection:`, settledResult.reason);
       }
     }
 
@@ -343,40 +373,39 @@ export async function GET(request: NextRequest) {
       skipReasons: [],
     };
 
-    // Process users in batches until we hit time or batch limit
-    let processedCount = 0;
-    for (let i = 0; i < batchUsers.length; i++) {
-      // Check if we've exceeded time limit
-      const elapsed = Date.now() - startTime;
-      if (elapsed > MAX_EXECUTION_TIME_MS) {
-        console.log(
-          `Time limit reached. Processed ${processedCount} users, ${batchUsers.length - i} remaining in batch`
-        );
-        break;
-      }
+    // Process ALL users in parallel (major performance optimization!)
+    // OpenAI and Resend can handle parallel requests without rate limiting issues
+    console.log(`[Cron] Processing ${batchUsers.length} users in parallel...`);
 
-      const user = batchUsers[i];
-      const result = await processUser(user, newsData);
+    const userPromises = batchUsers.map(user => processUser(user, newsData));
+    const userResults = await Promise.allSettled(userPromises);
 
-      results.processed++;
-      processedCount++;
+    // Aggregate results from all parallel user processing
+    for (let i = 0; i < userResults.length; i++) {
+      const settledResult = userResults[i];
 
-      if (result.skipped) {
-        results.skipped++;
-        if (result.skipReason) {
-          results.skipReasons.push(result.skipReason);
+      if (settledResult.status === 'fulfilled') {
+        const result = settledResult.value;
+        results.processed++;
+
+        if (result.skipped) {
+          results.skipped++;
+          if (result.skipReason) {
+            results.skipReasons.push(result.skipReason);
+          }
+        } else if (result.successful) {
+          results.successful++;
+        } else if (result.error) {
+          results.failed++;
+          results.errors.push(result.error);
         }
-      } else if (result.successful) {
-        results.successful++;
-      } else if (result.error) {
+      } else {
+        // Promise rejected unexpectedly
+        results.processed++;
         results.failed++;
-        results.errors.push(result.error);
-      }
-
-      // Add delay between users to respect rate limits
-      // Reduced delay since we're processing more users per batch
-      if (i < batchUsers.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        const errorMsg = `User processing failed: ${settledResult.reason}`;
+        results.errors.push(errorMsg);
+        console.error(`[Cron] ${errorMsg}`);
       }
     }
 
