@@ -41,10 +41,10 @@ async function fetchNewsFromCurrents(
     throw new Error('CurrentsAPI rate limit exceeded');
   }
 
-  // Calculate date for specified days back
+  // Calculate date for specified days back (RFC 3339 format required)
   const fromDate = new Date();
   fromDate.setDate(fromDate.getDate() - daysBack);
-  const fromDateStr = fromDate.toISOString().split('T')[0];
+  const fromDateStr = fromDate.toISOString();
 
   // Normalize topic - remove periods to avoid API encoding issues (e.g., "U.S." -> "US")
   const normalizedTopic = topic.replace(/\./g, '');
