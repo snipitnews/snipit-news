@@ -104,12 +104,12 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
           padding-right: 20px !important;
         }
         .content-padding {
-          padding-left: 20px !important;
-          padding-right: 20px !important;
+          padding-left: 12px !important;
+          padding-right: 12px !important;
         }
         .topic-padding {
-          padding-left: 20px !important;
-          padding-right: 20px !important;
+          padding-left: 12px !important;
+          padding-right: 12px !important;
           padding-top: 30px !important;
           padding-bottom: 30px !important;
           margin-bottom: 24px !important;
@@ -188,7 +188,7 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
             </table>
             
             <!-- The Cut Section -->
-            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="font-family:Roboto,sans-serif;margin-bottom:46px;padding-left:51px;padding-right:51px" class="content-padding">
+            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="font-family:Roboto,sans-serif;margin-bottom:46px;padding-left:24px;padding-right:24px" class="content-padding">
               <tbody>
                 <tr>
                   <td>
@@ -211,7 +211,7 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
               if (!topicSummary.summaries || topicSummary.summaries.length === 0) {
                 return `
             <!-- Topic Section: ${topicName} - No Updates -->
-            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fbfbfb;margin-bottom:30px;padding-top:43px;padding-left:51px;padding-right:51px;padding-bottom:45px" class="topic-padding">
+            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fbfbfb;margin-bottom:30px;padding-top:43px;padding-left:24px;padding-right:24px;padding-bottom:45px" class="topic-padding">
               <tbody>
                 <tr>
                   <td>
@@ -252,7 +252,7 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
               
               return `
             <!-- Topic Section: ${topicName} -->
-            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fbfbfb;margin-bottom:30px;padding-top:43px;padding-left:51px;padding-right:51px;padding-bottom:45px" class="topic-padding">
+            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fbfbfb;margin-bottom:30px;padding-top:43px;padding-left:24px;padding-right:24px;padding-bottom:45px" class="topic-padding">
               <tbody>
                 <tr>
                   <td>
