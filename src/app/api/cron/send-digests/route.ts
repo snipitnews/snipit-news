@@ -44,6 +44,8 @@ interface BatchResults {
 const MAX_BATCH_SIZE = 10;
 // Timeout for individual summarization calls (15 seconds)
 const SUMMARIZATION_TIMEOUT_MS = 15000;
+// Rate limit delay for email sending (Resend allows 2 req/sec, so 500ms between each)
+const EMAIL_RATE_LIMIT_DELAY_MS = 550; // Slightly over 500ms for safety margin
 
 // Utility function to wrap promises with a timeout
 async function withTimeout<T>(
@@ -58,6 +60,11 @@ async function withTimeout<T>(
     )
   );
   return Promise.race([promise, timeoutPromise]);
+}
+
+// Utility function to delay execution
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Log digest failure to database
@@ -88,17 +95,34 @@ async function logDigestFailure(
   }
 }
 
-// Process a single user using pre-fetched news data (extracted for batch processing)
-async function processUser(
+// Prepared email data for a user (after summarization, before sending)
+interface PreparedEmail {
+  user: UserWithRelations;
+  summaries: Awaited<ReturnType<typeof summarizeNews>>[];
+  topics: string[];
+  isPaid: boolean;
+}
+
+// Result from preparing a user's email (summarization phase)
+interface PrepareResult {
+  prepared: boolean;
+  skipped: boolean;
+  skipReason: string | null;
+  error: string | null;
+  emailData: PreparedEmail | null;
+}
+
+// Prepare a single user's email content (generate summaries) without sending
+async function prepareUserEmail(
   user: UserWithRelations,
   newsData: Record<string, NewsArticle[]>
-): Promise<ProcessResult> {
-  const result: ProcessResult = {
-    processed: true,
-    successful: false,
+): Promise<PrepareResult> {
+  const result: PrepareResult = {
+    prepared: false,
     skipped: false,
-    error: null,
     skipReason: null,
+    error: null,
+    emailData: null,
   };
 
   try {
@@ -116,10 +140,9 @@ async function processUser(
       return result;
     }
 
-    // Process user - send email at 8:30 AM EST regardless of user's timezone
     const topics = user.user_topics.map((ut) => ut.topic_name);
     console.log(
-      `Processing user ${user.email} with topics: ${topics.join(', ')}`
+      `[Cron] Preparing email for ${user.email} with topics: ${topics.join(', ')}`
     );
 
     // Generate summaries for each topic using pre-fetched news data (PARALLELIZED)
@@ -155,14 +178,12 @@ async function processUser(
           summaries.push(summary);
         }
       } else {
-        // Promise itself rejected (shouldn't happen with our try/catch, but handle it)
         hadSummaryErrors = true;
         console.error(`[Cron] Unexpected summary promise rejection:`, settledResult.reason);
       }
     }
 
     if (summaries.length === 0) {
-      // Log failure if we had errors, skip if just no news
       if (hadSummaryErrors) {
         await logDigestFailure(
           user.id,
@@ -175,16 +196,48 @@ async function processUser(
 
       result.skipped = true;
       result.skipReason = `No news found for user ${user.email} (topics: ${topics.join(', ')})`;
-      console.log(`[Cron] Skipping ${user.email}: No summaries generated for topics: ${topics.join(', ')}`);
+      console.log(`[Cron] Skipping ${user.email}: No summaries generated`);
       return result;
     }
 
-    // Send email digest
-    const emailResult = await sendNewsDigest(
-      user.email,
-      summaries,
-      user.subscription_tier === 'paid'
+    // Return prepared email data (don't send yet)
+    result.prepared = true;
+    result.emailData = { user, summaries, topics, isPaid };
+    return result;
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    result.error = `Error preparing email for ${user.email}: ${errorMsg}`;
+    console.error(result.error);
+
+    const topics = user.user_topics?.map((ut) => ut.topic_name) || [];
+    await logDigestFailure(
+      user.id,
+      topics,
+      errorMsg,
+      'unknown',
+      { stack: error instanceof Error ? error.stack : undefined }
     );
+  }
+
+  return result;
+}
+
+// Send a prepared email (called sequentially with rate limiting)
+async function sendPreparedEmail(
+  emailData: PreparedEmail
+): Promise<ProcessResult> {
+  const result: ProcessResult = {
+    processed: true,
+    successful: false,
+    skipped: false,
+    error: null,
+    skipReason: null,
+  };
+
+  const { user, summaries, topics, isPaid } = emailData;
+
+  try {
+    const emailResult = await sendNewsDigest(user.email, summaries, isPaid);
 
     if (emailResult.success) {
       // Store in email archive
@@ -202,7 +255,6 @@ async function processUser(
           `[Cron] Failed to archive email for ${user.email}:`,
           archiveError
         );
-        // Don't fail the whole operation if archiving fails
       }
 
       result.successful = true;
@@ -210,9 +262,8 @@ async function processUser(
     } else {
       const errorMsg = emailResult.error || 'Unknown email error';
       result.error = `Failed to send email to ${user.email}: ${errorMsg}`;
-      console.error(`[Cron] ❌ ${result.error}`, emailResult.details ? `Details: ${JSON.stringify(emailResult.details)}` : '');
+      console.error(`[Cron] ❌ ${result.error}`);
 
-      // Log email failure to database
       await logDigestFailure(
         user.id,
         topics,
@@ -223,16 +274,14 @@ async function processUser(
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    result.error = `Error processing user ${user.email}: ${errorMsg}`;
+    result.error = `Error sending email to ${user.email}: ${errorMsg}`;
     console.error(result.error);
 
-    // Log unknown error to database
-    const topics = user.user_topics?.map((ut) => ut.topic_name) || [];
     await logDigestFailure(
       user.id,
       topics,
       errorMsg,
-      'unknown',
+      'email_error',
       { stack: error instanceof Error ? error.stack : undefined }
     );
   }
@@ -373,39 +422,62 @@ export async function GET(request: NextRequest) {
       skipReasons: [],
     };
 
-    // Process ALL users in parallel (major performance optimization!)
-    // OpenAI and Resend can handle parallel requests without rate limiting issues
-    console.log(`[Cron] Processing ${batchUsers.length} users in parallel...`);
+    // PHASE 1: Prepare all emails in parallel (summarization is parallelized)
+    console.log(`[Cron] Phase 1: Preparing ${batchUsers.length} emails in parallel...`);
 
-    const userPromises = batchUsers.map(user => processUser(user, newsData));
-    const userResults = await Promise.allSettled(userPromises);
+    const preparePromises = batchUsers.map(user => prepareUserEmail(user, newsData));
+    const prepareResults = await Promise.allSettled(preparePromises);
 
-    // Aggregate results from all parallel user processing
-    for (let i = 0; i < userResults.length; i++) {
-      const settledResult = userResults[i];
+    // Collect prepared emails and handle skipped/failed users
+    const preparedEmails: PreparedEmail[] = [];
+
+    for (let i = 0; i < prepareResults.length; i++) {
+      const settledResult = prepareResults[i];
 
       if (settledResult.status === 'fulfilled') {
-        const result = settledResult.value;
-        results.processed++;
+        const prepResult = settledResult.value;
 
-        if (result.skipped) {
+        if (prepResult.skipped) {
+          results.processed++;
           results.skipped++;
-          if (result.skipReason) {
-            results.skipReasons.push(result.skipReason);
+          if (prepResult.skipReason) {
+            results.skipReasons.push(prepResult.skipReason);
           }
-        } else if (result.successful) {
-          results.successful++;
-        } else if (result.error) {
+        } else if (prepResult.error) {
+          results.processed++;
           results.failed++;
-          results.errors.push(result.error);
+          results.errors.push(prepResult.error);
+        } else if (prepResult.prepared && prepResult.emailData) {
+          preparedEmails.push(prepResult.emailData);
         }
       } else {
-        // Promise rejected unexpectedly
         results.processed++;
         results.failed++;
-        const errorMsg = `User processing failed: ${settledResult.reason}`;
+        const errorMsg = `Email preparation failed: ${settledResult.reason}`;
         results.errors.push(errorMsg);
         console.error(`[Cron] ${errorMsg}`);
+      }
+    }
+
+    // PHASE 2: Send emails sequentially with rate limiting (Resend allows 2 req/sec)
+    console.log(`[Cron] Phase 2: Sending ${preparedEmails.length} emails with rate limiting...`);
+
+    for (let i = 0; i < preparedEmails.length; i++) {
+      const emailData = preparedEmails[i];
+
+      // Add delay between emails to respect rate limit (skip delay for first email)
+      if (i > 0) {
+        await delay(EMAIL_RATE_LIMIT_DELAY_MS);
+      }
+
+      const sendResult = await sendPreparedEmail(emailData);
+      results.processed++;
+
+      if (sendResult.successful) {
+        results.successful++;
+      } else if (sendResult.error) {
+        results.failed++;
+        results.errors.push(sendResult.error);
       }
     }
 
