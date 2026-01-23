@@ -164,18 +164,17 @@ async function fetchNewsForTopicWithTimeWindow(
   return sortedArticles;
 }
 
-// Check if we have fresh cache for a topic
-async function checkArticleCache(topic: string, maxAgeHours: number = 24): Promise<NewsArticle[] | null> {
+// Check if we have fresh cache for a topic (from today's date)
+async function checkArticleCache(topic: string): Promise<NewsArticle[] | null> {
   try {
     const supabase = getSupabaseAdmin();
-    const cutoffTime = new Date();
-    cutoffTime.setHours(cutoffTime.getHours() - maxAgeHours);
+    const today = new Date().toISOString().split('T')[0]; // "YYYY-MM-DD"
 
     const { data, error } = await supabase
       .from('article_cache')
       .select('articles, created_at, source')
       .eq('topic', topic)
-      .gte('created_at', cutoffTime.toISOString())
+      .eq('date', today)
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
@@ -186,8 +185,7 @@ async function checkArticleCache(topic: string, maxAgeHours: number = 24): Promi
 
     const cacheData = data as { articles: NewsArticle[]; created_at: string; source: string };
     const articles = cacheData.articles;
-    const age = Math.round((Date.now() - new Date(cacheData.created_at).getTime()) / (1000 * 60 * 60));
-    console.log(`[Cache] ✅ Found fresh cache for "${topic}" (${articles.length} articles, ${age}h old, source: ${cacheData.source})`);
+    console.log(`[Cache] ✅ Found today's cache for "${topic}" (${articles.length} articles, source: ${cacheData.source})`);
     return articles;
   } catch (error) {
     console.error(`[Cache] Error checking cache for "${topic}":`, error);
@@ -258,8 +256,8 @@ export async function fetchNewsForTopic(topic: string): Promise<NewsArticle[]> {
   const MIN_ARTICLES_NEEDED = 3;
 
   try {
-    // Strategy 0: Check cache first (most efficient)
-    const cachedArticles = await checkArticleCache(topic, 24);
+    // Strategy 0: Check cache first (must be from today's date)
+    const cachedArticles = await checkArticleCache(topic);
     if (cachedArticles && cachedArticles.length >= MIN_ARTICLES_NEEDED) {
       return cachedArticles.slice(0, 10);
     }
