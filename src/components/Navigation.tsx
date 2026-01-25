@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Menu, X, Home, LayoutDashboard, Settings, BookOpen, LogOut } from 'lucide-react';
+import { Menu, X, Home, LayoutDashboard, Settings, BookOpen, LogOut, Mail } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 
@@ -119,18 +119,24 @@ export default function Navigation() {
               <span className="text-xl font-bold text-white">SnipIt</span>
             </Link>
             <nav className="hidden md:flex space-x-8">
-              <a
-                href="#features"
+              <Link
+                href="/#features"
                 className="text-sm text-gray-400 hover:text-[#FFA500] transition-colors"
               >
                 Features
-              </a>
-              <a
-                href="#pricing"
+              </Link>
+              <Link
+                href="/#pricing"
                 className="text-sm text-gray-400 hover:text-[#FFA500] transition-colors"
               >
                 Pricing
-              </a>
+              </Link>
+              <Link
+                href="/contact"
+                className="text-sm text-gray-400 hover:text-[#FFA500] transition-colors"
+              >
+                Contact
+              </Link>
             </nav>
           </div>
         </div>
@@ -143,6 +149,7 @@ export default function Navigation() {
     { path: '/', label: 'Home', icon: Home },
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/topics', label: 'Topics', icon: BookOpen },
+    { path: '/contact', label: 'Contact', icon: Mail },
   ];
 
   // Add admin link if user is admin
