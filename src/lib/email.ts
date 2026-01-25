@@ -104,12 +104,12 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
           padding-right: 20px !important;
         }
         .content-padding {
-          padding-left: 12px !important;
-          padding-right: 12px !important;
+          padding-left: 10px !important;
+          padding-right: 10px !important;
         }
         .topic-padding {
-          padding-left: 12px !important;
-          padding-right: 12px !important;
+          padding-left: 10px !important;
+          padding-right: 10px !important;
           padding-top: 30px !important;
           padding-bottom: 30px !important;
           margin-bottom: 24px !important;
@@ -188,7 +188,7 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
             </table>
             
             <!-- The Cut Section -->
-            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="font-family:Roboto,sans-serif;margin-bottom:46px;padding-left:24px;padding-right:24px" class="content-padding">
+            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="font-family:Roboto,sans-serif;margin-bottom:46px;padding-left:16px;padding-right:16px" class="content-padding">
               <tbody>
                 <tr>
                   <td>
@@ -211,7 +211,7 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
               if (!topicSummary.summaries || topicSummary.summaries.length === 0) {
                 return `
             <!-- Topic Section: ${topicName} - No Updates -->
-            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fbfbfb;margin-bottom:30px;padding-top:43px;padding-left:24px;padding-right:24px;padding-bottom:45px" class="topic-padding">
+            <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fbfbfb;margin-bottom:30px;padding-top:43px;padding-left:16px;padding-right:16px;padding-bottom:45px" class="topic-padding">
               <tbody>
                 <tr>
                   <td>
@@ -223,7 +223,7 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
                             <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                             <tbody>
                               <tr>
-                                <td style="width:40px;vertical-align:middle">
+                                <td style="width:30px;vertical-align:middle">
                                   <img src="https://res.cloudinary.com/dgqg2myag/image/upload/v1748662022/snipit-logo_vzcwe5.png" alt="SnipIt" style="display:block;outline:none;border:none;text-decoration:none;height:41px" class="logo-size">
                                 </td>
                                 <td style="vertical-align:middle">
@@ -264,7 +264,7 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
                             <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                             <tbody>
                               <tr>
-                                <td style="width:40px;vertical-align:middle">
+                                <td style="width:30px;vertical-align:middle">
                                   <img src="https://res.cloudinary.com/dgqg2myag/image/upload/v1748662022/snipit-logo_vzcwe5.png" alt="SnipIt" style="display:block;outline:none;border:none;text-decoration:none;height:41px" class="logo-size">
                                 </td>
                                 <td style="vertical-align:middle">
@@ -338,7 +338,7 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
                     <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:24px">
                       <tbody>
                         <tr>
-                          <td style="width:32px;vertical-align:top;padding-top:4px">
+                          <td style="width:25px;vertical-align:top;padding-top:4px">
                             <img src="https://res.cloudinary.com/dgqg2myag/image/upload/v1748662914/snipit-logo-black_fttbsx.png" alt="•" style="display:block;outline:none;border:none;text-decoration:none;height:20px;width:20px" />
                           </td>
                           <td style="font-family:Raleway,sans-serif;vertical-align:top">
@@ -353,7 +353,7 @@ function generateEmailHTML(email: string, summaries: NewsSummary[], isPaid: bool
                             <table align="left" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:8px">
                               <tbody>
                                 <tr>
-                                  <td style="width:20px;vertical-align:top;padding-top:4px">
+                                  <td style="width:15px;vertical-align:top;padding-top:4px">
                                     <span style="color:#000000;font-size:16px;line-height:22px;">•</span>
                                   </td>
                                   <td style="vertical-align:top;padding-top:0">
