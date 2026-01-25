@@ -1,6 +1,6 @@
 import { NewsArticle } from './openai';
 import { getSourcesForTopic } from './newsSources';
-import { fetchNewsForTopicFromCurrents } from './currentsapi';
+import { fetchNewsForTopicFromCurrents, getRemainingRequests } from './currentsapi';
 import { getSupabaseAdmin } from './supabase';
 import { scoreArticles, selectTopArticles } from './articleScoring';
 import { cleanArticleContent } from './utils/articleCleaning';
@@ -356,30 +356,72 @@ export async function fetchNewsForMultipleTopics(
 ): Promise<Record<string, NewsArticle[]>> {
   const results: Record<string, NewsArticle[]> = {};
 
-  // Process topics sequentially with delay to respect rate limits
-  for (let i = 0; i < topics.length; i++) {
-    const topic = topics[i];
-    try {
-      console.log(`[Multi-Source] Fetching news for topic ${i + 1}/${topics.length}: ${topic}`);
-      results[topic] = await fetchNewsForTopic(topic);
+  // Check remaining API quota to determine batch size
+  const remainingRequests = getRemainingRequests();
+  console.log(`[Multi-Source] Starting parallel fetch for ${topics.length} topics`);
+  console.log(`[Multi-Source] Remaining API requests: ${remainingRequests}`);
 
-      // Add delay between requests to respect rate limits (200ms between requests)
-      if (i < topics.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
+  // Determine batch size based on remaining quota
+  // Each topic may use 1-2 requests (24h fetch, possibly 48h retry)
+  const estimatedRequestsPerTopic = 2;
+  const safeTopicLimit = Math.floor(remainingRequests / estimatedRequestsPerTopic);
+  const baseBatchSize = 5;
+  const batchSize = remainingRequests < topics.length * estimatedRequestsPerTopic
+    ? Math.max(2, Math.min(baseBatchSize, safeTopicLimit))
+    : baseBatchSize;
+
+  console.log(`[Multi-Source] Using batch size: ${batchSize}`);
+
+  // Helper function to process a batch of topics concurrently
+  async function processBatch(batchTopics: string[], batchIndex: number, totalBatches: number): Promise<void> {
+    console.log(`[Multi-Source] Processing batch ${batchIndex + 1}/${totalBatches}: ${batchTopics.join(', ')}`);
+
+    const batchPromises = batchTopics.map(async (topic, indexInBatch) => {
+      // Stagger requests within batch by 100ms to avoid thundering herd
+      await new Promise((resolve) => setTimeout(resolve, indexInBatch * 100));
+
+      try {
+        const articles = await fetchNewsForTopic(topic);
+        return { topic, articles, success: true };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`[Multi-Source] Failed to fetch news for topic "${topic}":`, errorMessage);
+        return { topic, articles: [] as NewsArticle[], success: false };
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[Multi-Source] Failed to fetch news for topic "${topic}":`, errorMessage);
+    });
 
-      // If rate limited, wait longer before continuing
-      if (errorMessage.includes('rate limit')) {
-        console.log(`[Multi-Source] Rate limited, waiting 2 seconds before next request...`);
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+    const batchResults = await Promise.allSettled(batchPromises);
+
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled') {
+        results[result.value.topic] = result.value.articles;
+      } else {
+        // This shouldn't happen since we catch errors inside, but handle just in case
+        console.error(`[Multi-Source] Unexpected batch failure:`, result.reason);
       }
-
-      results[topic] = [];
     }
   }
+
+  // Split topics into batches
+  const batches: string[][] = [];
+  for (let i = 0; i < topics.length; i += batchSize) {
+    batches.push(topics.slice(i, i + batchSize));
+  }
+
+  // Process batches sequentially with delay between batches
+  for (let i = 0; i < batches.length; i++) {
+    await processBatch(batches[i], i, batches.length);
+
+    // Add 300ms delay between batches to avoid rate limiting
+    if (i < batches.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+
+  // Log summary
+  const topicsWithArticles = Object.values(results).filter(articles => articles.length > 0).length;
+  const topicsWithoutArticles = topics.length - topicsWithArticles;
+  console.log(`[Multi-Source] Completed: ${topicsWithArticles} topics with articles, ${topicsWithoutArticles} topics without`);
 
   return results;
 }
