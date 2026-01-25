@@ -367,9 +367,9 @@ export default function LandingPage() {
                   initial={{ opacity: 0, y: 30 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.8, delay: 0.3 }}
-                  className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold mb-6 tracking-tight"
+                  className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold mb-6"
                 >
-                  <span className="bg-clip-text text-transparent bg-gradient-to-r from-white via-white/90 to-[#FFA500]">
+                  <span className="bg-clip-text text-transparent bg-gradient-to-r from-white via-white/90 to-[#FFA500] pr-2">
                     <span className="font-bold">Stay Informed</span>{' '}
                     <span className="italic font-normal">in Under 60 Seconds.</span>
                   </span>

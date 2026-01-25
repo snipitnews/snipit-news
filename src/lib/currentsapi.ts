@@ -29,6 +29,15 @@ function checkRateLimit(): boolean {
   return true;
 }
 
+export function getRemainingRequests(): number {
+  if (Date.now() > requestResetTime) {
+    requestCount = 0;
+    requestResetTime = Date.now() + 24 * 60 * 60 * 1000;
+  }
+  const limit = process.env.CURRENTS_API_TIER === 'pro' ? 50000 : 600;
+  return Math.max(0, limit - requestCount);
+}
+
 async function fetchNewsFromCurrents(
   topic: string,
   daysBack: number = 1
