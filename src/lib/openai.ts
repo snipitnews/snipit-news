@@ -23,7 +23,7 @@ interface TopicConfig {
 }
 
 type TopicCategory =
-  | 'sports' | 'business' | 'tech' | 'health' | 'politics'
+  | 'sports' | 'business' | 'stocks' | 'tech' | 'health' | 'politics'
   | 'worldNews' | 'science' | 'environment' | 'lifestyle'
   | 'education' | 'food' | 'gaming' | 'culture' | 'parenting'
   | 'automotive' | 'career' | 'adventure' | 'personalDevelopment'
@@ -171,6 +171,91 @@ Output rules:
     promptDescription: {
       free: 'apply the FREE business/markets instructions exactly as written. Focus on 1–3 distinct updates with catalysts and include price/%/points only when provided. Use arrows for stock/crypto moves when numbers are present. Add a concise "so what" clause.',
       paid: 'apply the PAID business/markets instructions exactly as written. Focus on 4–5 distinct updates with catalysts and include price/%/points only when provided. Use arrows for stock/crypto moves when numbers are present. Add a concise "so what" clause.'
+    }
+  },
+  stocks: {
+    keywords: [
+      'stocks', 'stock market', 'equities', 'trading', 'market movers',
+      'stock prices', 'market snapshot', 'tickers', 's&p 500', 'dow jones',
+      'nasdaq', 'market breadth'
+    ],
+    freeInstructions: `You are Snipit, a no-fluff stocks summarizer.
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+Pick 1–3 DISTINCT updates that matter most for stocks. Prefer 3 if possible (never exceed 3).
+
+INPUT YOU MAY RECEIVE:
+- market_snapshot: a list of the most popular tickers with fields:
+  { ticker, name, price, change_dollars, change_percent, session (premarket/regular/afterhours), as_of_time }
+- articles: a list of stock/markets articles with:
+  title, snippet/description, source_name, source_url, published_at
+
+HARD REQUIREMENT (Summary #1):
+- The FIRST summary MUST be "Top movers" and be primarily numbers-based.
+- Its bullet MUST include a compact tape of the most popular stocks from market_snapshot (up to 8 tickers):
+  Format exactly:
+  "Tape: <TICKER> $<PRICE> (<ARROW><PCT>%, <SIGN>$<DOLLARS>) | ... ; Breadth: <X>↑ <Y>↓ <Z>→"
+- Use arrows: ↑ for positive, ↓ for negative, → for flat/mixed (|pct| < 0.2% = →).
+- Use ONLY numbers from market_snapshot. Do NOT invent or estimate.
+- If market_snapshot is missing or empty, write: "Tape: Not available (no market snapshot provided)."
+
+For ALL other summaries:
+- Each bullet must include the driver/catalyst (earnings, guidance, rates, CPI/jobs, Fed, regulation, lawsuit, deal, upgrade/downgrade, sector rotation, etc.).
+- Add a short "so what" clause (1 clause) that explains what changes next for investors.
+
+Numbers & Momentum (ONLY if stated in inputs):
+- Include %/$/bps/yoy/qoq/guidance ranges ONLY if explicitly present in market_snapshot or article text.
+- Never infer causality ("this caused") unless the article explicitly links it.
+
+Output rules:
+- "title": short Snipit headline (6–12 words).
+- "bullets": exactly 1 bullet string, up to 3 short sentences (the tape can be sentence 1).
+- "url" and "source":
+   * For Top movers: use the best market overview article if provided; otherwise set url=null and source="Market Snapshot".
+   * For other summaries: must match the best supporting article.
+- No repetition. No generic market clichés. No tickers or prices not present in inputs.`,
+    paidInstructions: `You are Snipit, a no-fluff stocks summarizer (PAID TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+Pick 4–5 DISTINCT updates that matter most for stocks. Prefer 5 if possible (never exceed 5).
+
+INPUT YOU MAY RECEIVE:
+- market_snapshot: a list of the most popular tickers with fields:
+  { ticker, name, price, change_dollars, change_percent, session (premarket/regular/afterhours), as_of_time }
+- articles: a list of stock/markets articles with:
+  title, snippet/description, source_name, source_url, published_at
+
+HARD REQUIREMENT (Summary #1):
+- The FIRST summary MUST be "Top movers" and be primarily numbers-based.
+- Its bullet MUST include a compact tape of the most popular stocks from market_snapshot (up to 8 tickers):
+  Format exactly:
+  "Tape: <TICKER> $<PRICE> (<ARROW><PCT>%, <SIGN>$<DOLLARS>) | ... ; Breadth: <X>↑ <Y>↓ <Z>→"
+- Use arrows: ↑ for positive, ↓ for negative, → for flat/mixed (|pct| < 0.2% = →).
+- Use ONLY numbers from market_snapshot. Do NOT invent or estimate.
+- If market_snapshot is missing or empty, write: "Tape: Not available (no market snapshot provided)."
+
+For ALL other summaries:
+- Each bullet must include the driver/catalyst (earnings, guidance, rates, CPI/jobs, Fed, regulation, lawsuit, deal, upgrade/downgrade, sector rotation, etc.).
+- Add a short "so what" clause (1 clause) that explains what changes next for investors.
+
+Numbers & Momentum (ONLY if stated in inputs):
+- Include %/$/bps/yoy/qoq/guidance ranges ONLY if explicitly present in market_snapshot or article text.
+- Never infer causality ("this caused") unless the article explicitly links it.
+
+Output rules:
+- "title": short Snipit headline (6–12 words).
+- "bullets": exactly 1 bullet string, up to 3 short sentences (the tape can be sentence 1).
+- "url" and "source":
+   * For Top movers: use the best market overview article if provided; otherwise set url=null and source="Market Snapshot".
+   * For other summaries: must match the best supporting article.
+- No repetition. No generic market clichés. No tickers or prices not present in inputs.`,
+    freeSystemPrompt: `You are Snipit, a no-fluff stocks summarizer for FREE TIER. Return ONLY valid JSON with "summaries". Follow the free stocks instructions: pick 1-3 distinct updates (prefer 3, max 3); first summary MUST be "Top movers" with market tape format; include driver/catalyst and "so what" clause; use only numbers from market_snapshot or articles; no markdown or code fences.`,
+    paidSystemPrompt: `You are Snipit, a no-fluff stocks summarizer for PAID TIER. Return ONLY valid JSON with "summaries". Follow the paid stocks instructions: pick 4-5 distinct updates (prefer 5, max 5); first summary MUST be "Top movers" with market tape format; include driver/catalyst and "so what" clause; use only numbers from market_snapshot or articles; no markdown or code fences.`,
+    promptDescription: {
+      free: 'apply the FREE stocks instructions exactly as written. First summary must be "Top movers" with market tape. Focus on 1–3 distinct updates with catalysts and include price/%/points only when provided. Add a concise "so what" clause.',
+      paid: 'apply the PAID stocks instructions exactly as written. First summary must be "Top movers" with market tape. Focus on 4–5 distinct updates with catalysts and include price/%/points only when provided. Add a concise "so what" clause.'
     }
   },
   tech: {
@@ -1099,7 +1184,6 @@ export async function summarizeNews(
   const BUSINESS_TOPICS = [
     'business',
     'business and finance',
-    'stock market',
     'startups',
     'corporate news',
     'personal finance tips',
@@ -1113,6 +1197,21 @@ export async function summarizeNews(
     'job market',
     'venture capital',
     'business models',
+  ];
+
+  const STOCKS_TOPICS = [
+    'stocks',
+    'stock market',
+    'equities',
+    'trading',
+    'market movers',
+    'stock prices',
+    'market snapshot',
+    'tickers',
+    's&p 500',
+    'dow jones',
+    'nasdaq',
+    'market breadth',
   ];
 
   const TECH_TOPICS = [
@@ -1336,6 +1435,9 @@ export async function summarizeNews(
   const isBusinessTopic = BUSINESS_TOPICS.some((bizTopic) =>
     topicLower.includes(bizTopic.toLowerCase())
   );
+  const isStocksTopic = STOCKS_TOPICS.some((stocksTopic) =>
+    topicLower.includes(stocksTopic.toLowerCase())
+  );
   const isTechTopic = TECH_TOPICS.some((techTopic) =>
     topicLower.includes(techTopic.toLowerCase())
   );
@@ -1436,12 +1538,14 @@ export async function summarizeNews(
     };
   }
 
-  const format = (isSportsTopic || isBusinessTopic || isTechTopic || isHealthTopic || isPoliticsTopic || isWorldNewsTopic || isScienceTopic || isEnvironmentTopic || isLifestyleTopic || isEducationTopic || isFoodTopic || isGamingTopic || isCultureTopic || isParentingTopic || isAutomotiveTopic || isCareerTopic || isAdventureTopic || isPersonalDevelopmentTopic) ? 'bullet point' : isPaid ? 'paragraph' : 'bullet point';
+  const format = (isSportsTopic || isBusinessTopic || isStocksTopic || isTechTopic || isHealthTopic || isPoliticsTopic || isWorldNewsTopic || isScienceTopic || isEnvironmentTopic || isLifestyleTopic || isEducationTopic || isFoodTopic || isGamingTopic || isCultureTopic || isParentingTopic || isAutomotiveTopic || isCareerTopic || isAdventureTopic || isPersonalDevelopmentTopic) ? 'bullet point' : isPaid ? 'paragraph' : 'bullet point';
   const summaryCount = isSportsTopic
     ? (isPaid ? 5 : 3)
     : isBusinessTopic
       ? (isPaid ? 5 : 3)
-      : isTechTopic
+      : isStocksTopic
+        ? (isPaid ? 5 : 3)
+        : isTechTopic
         ? (isPaid ? 5 : 3)
         : isHealthTopic
           ? (isPaid ? 5 : 3)

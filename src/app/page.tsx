@@ -369,12 +369,9 @@ export default function LandingPage() {
                   transition={{ duration: 0.8, delay: 0.3 }}
                   className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold mb-6 tracking-tight"
                 >
-                  <span className="bg-clip-text text-transparent bg-gradient-to-b from-white to-white/80">
-                    Your daily news,
-                  </span>
-                  <br />
-                  <span className="bg-clip-text text-transparent bg-gradient-to-r from-[#FFA500] via-[#FFD700] to-[#FF6B47]">
-                    summarized
+                  <span className="bg-clip-text text-transparent bg-gradient-to-r from-white via-white/90 to-[#FFA500]">
+                    <span className="font-bold">Stay Informed</span>{' '}
+                    <span className="italic font-normal">in Under 60 Seconds.</span>
                   </span>
                 </motion.h1>
 
@@ -412,9 +409,7 @@ export default function LandingPage() {
                       transition={{ duration: 0.6, delay: 0.4 }}
                       className="text-lg sm:text-xl md:text-2xl text-white/50 mb-10 leading-relaxed font-light max-w-3xl mx-auto"
                     >
-                      Get the most important news stories delivered to your inbox
-                      every morning. AI-powered summaries that save you time while
-                      keeping you informed.
+                      Personalized bite-size news on the topics you care about—<span className="font-bold">no fluff</span>. Just the facts that matter.
                     </motion.p>
 
                     <motion.form
