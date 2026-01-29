@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    const maxTopics = user.subscription_tier === 'paid' ? 12 : 5;
+    const maxTopics = user.subscription_tier === 'paid' ? 12 : 3;
 
     if (currentTopics.length >= maxTopics) {
       return NextResponse.json(

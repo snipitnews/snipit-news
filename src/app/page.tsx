@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import Navigation from '@/components/Navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { motion, useScroll, useTransform } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Check,
   Clock,
@@ -45,13 +45,6 @@ export default function LandingPage() {
   const [isCheckingUser, setIsCheckingUser] = useState(true);
   const [error, setError] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
-  const { scrollYProgress } = useScroll({
-    target: containerRef,
-    offset: ['start start', 'end start'],
-  });
-
-  const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
-  const scale = useTransform(scrollYProgress, [0, 0.5], [1, 0.95]);
 
   useEffect(() => {
     checkUserStatus();
@@ -216,7 +209,7 @@ export default function LandingPage() {
     e.preventDefault();
     if (!newTopic.trim() || !user) return;
 
-    const maxTopics = user.subscription_tier === 'paid' ? 12 : 5;
+    const maxTopics = user.subscription_tier === 'paid' ? 12 : 3;
 
     if (topics.length >= maxTopics) {
       setError(
@@ -335,7 +328,7 @@ export default function LandingPage() {
     );
   }
 
-  const maxTopics = user?.subscription_tier === 'paid' ? 12 : 5;
+  const maxTopics = user?.subscription_tier === 'paid' ? 12 : 3;
   const canAddMore = user ? topics.length < maxTopics : true;
   const remainingTopics = user ? maxTopics - topics.length : 0;
   const isExistingUser = user !== null;
@@ -349,7 +342,7 @@ export default function LandingPage() {
         {/* Background gradients */}
         <div className="absolute inset-0 bg-gradient-to-br from-[#FFA500]/[0.03] via-transparent to-[#FF6B47]/[0.03] blur-3xl" />
         
-        <motion.div style={{ opacity, scale }} className="relative z-10">
+        <motion.div className="relative z-10">
           <div className="container mx-auto px-4 md:px-6 pt-20 md:pt-32 pb-24">
             <div className="max-w-6xl mx-auto">
               <div className="text-center mb-12 md:mb-16">
@@ -367,9 +360,9 @@ export default function LandingPage() {
                   initial={{ opacity: 0, y: 30 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.8, delay: 0.3 }}
-                  className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold mb-6"
+                  className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold mb-6 leading-[1.1] overflow-visible"
                 >
-                  <span className="bg-clip-text text-transparent bg-gradient-to-r from-white via-white/90 to-[#FFA500] pr-2">
+                  <span className="bg-clip-text text-transparent bg-gradient-to-r from-white via-white/90 to-[#FFA500] pr-4 inline-block pb-1">
                     <span className="font-bold">Stay Informed</span>{' '}
                     <span className="italic font-normal">in Under 60 Seconds.</span>
                   </span>
@@ -490,7 +483,7 @@ export default function LandingPage() {
               >
                 {[
                   { value: '8:30 AM', label: 'Daily Delivery' },
-                  { value: '5', label: 'Topics Free' },
+                  { value: '3', label: 'Topics Free' },
                   { value: '60s', label: 'Read Time' },
                   { value: 'AI', label: 'Powered' },
                 ].map((stat, i) => (
@@ -638,7 +631,7 @@ export default function LandingPage() {
               <ul className="space-y-3 mb-8">
                 <li className="flex items-center">
                   <Check className="w-5 h-5 text-[#FFA500] mr-3 flex-shrink-0" />
-                  <span className="text-gray-300">Up to 5 topics</span>
+                  <span className="text-gray-300">Up to 3 topics</span>
                 </li>
                 <li className="flex items-center">
                   <Check className="w-5 h-5 text-[#FFA500] mr-3 flex-shrink-0" />

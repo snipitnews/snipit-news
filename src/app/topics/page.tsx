@@ -81,7 +81,7 @@ export default function TopicsPage() {
   const addTopic = async (subtopic: string) => {
     if (!user) return;
 
-    const maxTopics = user.subscription_tier === 'paid' ? 12 : 5;
+    const maxTopics = user.subscription_tier === 'paid' ? 12 : 3;
     
     if (topics.length >= maxTopics) {
       setError(
@@ -226,7 +226,7 @@ export default function TopicsPage() {
     );
   }
 
-  const maxTopics = user?.subscription_tier === 'paid' ? 12 : 5;
+  const maxTopics = user?.subscription_tier === 'paid' ? 12 : 3;
   const canAddMore = topics.length < maxTopics;
   const remainingTopics = maxTopics - topics.length;
 
@@ -247,7 +247,7 @@ export default function TopicsPage() {
             {user?.subscription_tier === 'paid' ? (
               <>Pro plan: Up to 12 topics</>
             ) : (
-              <>Free plan: Up to 5 topics • <span className="text-[#FFA500] opacity-60">Pro plan coming soon</span> for 12 topics</>
+              <>Free plan: Up to 3 topics • <span className="text-[#FFA500] opacity-60">Pro plan coming soon</span> for 12 topics</>
             )}
           </p>
         </div>
