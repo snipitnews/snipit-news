@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/send-digests",
-      "schedule": "30 13 * * *"
+      "schedule": "45 12 * * *"
     }
   ],
   "functions": {

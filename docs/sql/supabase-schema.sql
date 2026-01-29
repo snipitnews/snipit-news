@@ -198,17 +198,17 @@ BEGIN
   IF user_tier = 'paid' THEN
     max_topics := 12;
   ELSE
-    max_topics := 5;
+    max_topics := 3;
   END IF;
-  
+
   -- Count current topics
   SELECT COUNT(*) INTO current_count
   FROM user_topics
   WHERE user_id = NEW.user_id;
-  
+
   -- Check if adding this topic would exceed the limit
   IF current_count >= max_topics THEN
-    RAISE EXCEPTION 'Topic limit exceeded. Free tier allows 5 topics, paid tier allows 12 topics.';
+    RAISE EXCEPTION 'Topic limit exceeded. Free tier allows 3 topics, paid tier allows 12 topics.';
   END IF;
   
   RETURN NEW;

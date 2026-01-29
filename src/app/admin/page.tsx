@@ -106,7 +106,7 @@ export default function AdminPortal() {
         throw new Error(error.message || 'Failed to load logs');
       }
 
-      setLogs((data || []).map(log => ({
+      setLogs((data || []).map((log: CronJobLog) => ({
         ...log,
         errors: Array.isArray(log.errors) ? log.errors : (log.errors ? [String(log.errors)] : []),
         skip_reasons: Array.isArray(log.skip_reasons) ? log.skip_reasons : (log.skip_reasons ? [String(log.skip_reasons)] : []),

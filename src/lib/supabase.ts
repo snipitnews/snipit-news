@@ -1,22 +1,31 @@
 import { createClient } from '@supabase/supabase-js';
 import { createBrowserClient } from '@supabase/ssr';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+// Lazy initialization for browser client
+let _supabase: ReturnType<typeof createBrowserClient> | null = null;
 
-// Debug logging (server-side only)
-if (typeof window === 'undefined') {
-  console.log('🔍 Environment Debug (Server-side):');
-  console.log('SUPABASE_URL:', supabaseUrl);
-  console.log('SUPABASE_ANON_KEY:', supabaseAnonKey ? 'Present' : 'Missing');
-  console.log(
-    'SUPABASE_SERVICE_KEY:',
-    process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Present' : 'Missing'
-  );
-}
+export const getSupabase = () => {
+  if (!_supabase) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Client for browser usage - uses cookies to sync with server-side
-export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error(
+        'Missing Supabase environment variables. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.'
+      );
+    }
+
+    _supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
+  }
+  return _supabase;
+};
+
+// For backward compatibility - use getSupabase() for new code
+export const supabase = new Proxy({} as ReturnType<typeof createBrowserClient>, {
+  get(_, prop) {
+    return (getSupabase() as Record<string, unknown>)[prop as string];
+  },
+});
 
 // Admin client for server-side operations
 let _supabaseAdmin: ReturnType<typeof createClient> | null = null;
@@ -27,12 +36,14 @@ export const getSupabaseAdmin = () => {
   }
 
   if (!_supabaseAdmin) {
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    console.log(
-      'SUPABASE_SERVICE_KEY:',
-      supabaseServiceKey ? 'Present' : 'Missing'
-    );
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error(
+        'Missing Supabase environment variables. Please set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.'
+      );
+    }
 
     _supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
       auth: {

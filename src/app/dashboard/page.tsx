@@ -135,7 +135,7 @@ export default function Dashboard() {
   const addTopic = async (subtopic: string) => {
     if (!user) return;
 
-    const maxTopics = user.subscription_tier === 'paid' ? 12 : 5;
+    const maxTopics = user.subscription_tier === 'paid' ? 12 : 3;
     
     if (topics.length >= maxTopics) {
       alert(
@@ -358,7 +358,7 @@ export default function Dashboard() {
     );
   }
 
-  const maxTopics = user?.subscription_tier === 'paid' ? 12 : 5;
+  const maxTopics = user?.subscription_tier === 'paid' ? 12 : 3;
   const canAddMore = topics.length < maxTopics;
 
   // Format delivery time for display

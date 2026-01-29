@@ -192,7 +192,7 @@ export const IPhoneVideoMockup: React.FC<IPhoneVideoMockupProps> = ({
             muted
             playsInline
             className="absolute inset-0 w-full h-full object-cover"
-            style={{ objectFit: 'cover', filter: 'brightness(1.5)' }}
+            style={{ objectFit: 'cover' }}
           />
 
           {/* Dynamic Island */}
