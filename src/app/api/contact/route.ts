@@ -1,7 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy initialization for Resend client
+let _resend: Resend | null = null;
+
+const getResend = () => {
+  if (!_resend) {
+    const apiKey = process.env.RESEND_API_KEY;
+
+    if (!apiKey) {
+      throw new Error('Missing RESEND_API_KEY environment variable.');
+    }
+
+    _resend = new Resend(apiKey);
+  }
+  return _resend;
+};
 
 // Rate limiting: simple in-memory store (resets on server restart)
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -81,7 +95,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Send email notification
-    const { error: sendError } = await resend.emails.send({
+    const { error: sendError } = await getResend().emails.send({
       from: 'SnipIt Contact Form <nofluff@newsletter.snipit.news>',
       to: ['naumaan.hussain111@gmail.com'],
       cc: ['haseebbakali@gmail.com'],

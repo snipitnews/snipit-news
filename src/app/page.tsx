@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import Navigation from '@/components/Navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -52,7 +53,7 @@ export default function LandingPage() {
     // Listen to auth state changes to update UI immediately on sign out
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       if (!session) {
         // User signed out - clear state immediately
         setUser(null);

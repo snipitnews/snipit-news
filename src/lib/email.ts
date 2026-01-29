@@ -1,7 +1,21 @@
 import { Resend } from 'resend';
 import { NewsSummary } from './openai';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy initialization for Resend client
+let _resend: Resend | null = null;
+
+const getResend = () => {
+  if (!_resend) {
+    const apiKey = process.env.RESEND_API_KEY;
+
+    if (!apiKey) {
+      throw new Error('Missing RESEND_API_KEY environment variable.');
+    }
+
+    _resend = new Resend(apiKey);
+  }
+  return _resend;
+};
 
 
 export async function sendNewsDigest(
@@ -18,7 +32,7 @@ export async function sendNewsDigest(
 
     const html = generateEmailHTML(email, summaries, isPaid);
 
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await getResend().emails.send({
       from: 'SnipIt <nofluff@newsletter.snipit.news>', // Using custom domain
       to: [email],
       subject: `Your SnipIt Daily Digest - ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,

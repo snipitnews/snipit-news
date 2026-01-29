@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { Menu, X, Home, LayoutDashboard, Settings, BookOpen, LogOut, Mail } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -27,7 +28,7 @@ export default function Navigation() {
     // Listen to auth state changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       if (session) {
         loadUser();
       } else {
