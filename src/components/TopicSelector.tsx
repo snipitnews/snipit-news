@@ -48,7 +48,7 @@ export default function TopicSelector({
     setExpandedTopics(newExpanded);
   };
 
-  // Filter topics based on search
+  // Filter topics based on search and auto-expand matching categories
   const filteredTopics = useMemo(() => {
     if (!searchQuery.trim()) {
       return TOPICS;
@@ -63,6 +63,17 @@ export default function TopicSelector({
       }
       mainTopicsMap.get(mainTopic)!.push(subtopic);
     });
+
+    // Auto-expand categories that have matching subtopics when searching
+    const categoriesToExpand = new Set<string>();
+    mainTopicsMap.forEach((subtopics, mainTopic) => {
+      if (subtopics.length > 0) {
+        categoriesToExpand.add(mainTopic);
+      }
+    });
+    if (categoriesToExpand.size > 0) {
+      setExpandedTopics(categoriesToExpand);
+    }
 
     return TOPICS.filter((topic) => mainTopicsMap.has(topic.name)).map((topic) => ({
       ...topic,

@@ -82,8 +82,8 @@ The app will start at: http://localhost:3000
 
    - After signing in, you'll be redirected to `/dashboard`
    - Add topics like: "artificial intelligence", "tech", "crypto", "sports"
-   - Free tier: up to 5 topics
-   - Paid tier: up to 10 topics
+   - Free tier: up to 3 topics
+   - Paid tier: up to 12 topics
 
 3. **Configure Settings**
 
@@ -167,4 +167,4 @@ curl http://localhost:3000/api/archive
 - [ ] Can pause/resume emails
 - [ ] Manual cron trigger sends email
 - [ ] Email archive shows sent emails
-- [ ] Topics are limited correctly (5 free, 10 paid)
+- [ ] Topics are limited correctly (3 free, 12 paid)
