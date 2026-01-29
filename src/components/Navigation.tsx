@@ -104,6 +104,12 @@ export default function Navigation() {
 
   if (!user) {
     // Not logged in - show navigation with Features and Pricing links
+    const publicNavItems = [
+      { path: '/#features', label: 'Features' },
+      { path: '/#pricing', label: 'Pricing' },
+      { path: '/contact', label: 'Contact' },
+    ];
+
     return (
       <nav className="bg-[#2a2a2a] border-b border-[#FFA500]/20 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -118,27 +124,46 @@ export default function Navigation() {
               />
               <span className="text-xl font-bold text-white">SnipIt</span>
             </Link>
-            <nav className="hidden md:flex space-x-8">
-              <Link
-                href="/#features"
-                className="text-sm text-gray-400 hover:text-[#FFA500] transition-colors"
-              >
-                Features
-              </Link>
-              <Link
-                href="/#pricing"
-                className="text-sm text-gray-400 hover:text-[#FFA500] transition-colors"
-              >
-                Pricing
-              </Link>
-              <Link
-                href="/contact"
-                className="text-sm text-gray-400 hover:text-[#FFA500] transition-colors"
-              >
-                Contact
-              </Link>
-            </nav>
+
+            {/* Desktop Navigation */}
+            <div className="hidden md:flex space-x-8">
+              {publicNavItems.map((item) => (
+                <Link
+                  key={item.path}
+                  href={item.path}
+                  className="text-sm text-gray-400 hover:text-[#FFA500] transition-colors"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+
+            {/* Mobile Menu Button */}
+            <button
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              className="md:hidden text-gray-400 hover:text-white transition-colors"
+            >
+              {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
           </div>
+
+          {/* Mobile Menu */}
+          {isMenuOpen && (
+            <div className="md:hidden border-t border-[#FFA500]/20 py-4">
+              <div className="space-y-2">
+                {publicNavItems.map((item) => (
+                  <Link
+                    key={item.path}
+                    href={item.path}
+                    onClick={() => setIsMenuOpen(false)}
+                    className="block px-4 py-3 rounded-lg text-gray-400 hover:text-white hover:bg-[#333333] transition-colors font-medium"
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </nav>
     );
