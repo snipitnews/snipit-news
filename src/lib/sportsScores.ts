@@ -109,7 +109,7 @@ function parseEvents(events: any[], leagueName: string): SportsScore[] {
       if (event.strResult && event.strResult.trim() !== '') {
         const scoreMatch = event.strResult.match(/(\d+)\s*-\s*(\d+)/);
         if (scoreMatch) {
-          const scores = scoreMatch[0].split('-').map(s => parseInt(s.trim()));
+          const scores = scoreMatch[0].split('-').map((s: string) => parseInt(s.trim()));
           // TheSportsDB typically formats as "HomeTeam Score - Score AwayTeam" or "AwayTeam Score - Score HomeTeam"
           // We'll use the intHomeScore and intAwayScore if available, otherwise parse from strResult
           if (event.intHomeScore !== null && event.intAwayScore !== null) {
