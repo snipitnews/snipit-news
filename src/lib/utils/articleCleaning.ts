@@ -62,7 +62,7 @@ export function truncateAtSentenceBoundary(text: string, maxLength: number): str
   sentenceEndRegex.lastIndex = searchStart;
   
   while ((match = sentenceEndRegex.exec(text)) !== null) {
-    if (match.index <= searchEnd) {
+    if (match.index !== undefined && match.index <= searchEnd) {
       lastMatch = match;
     } else {
       break;
@@ -70,7 +70,7 @@ export function truncateAtSentenceBoundary(text: string, maxLength: number): str
   }
   
   // If we found a sentence boundary, truncate there
-  if (lastMatch && lastMatch.index > 0) {
+  if (lastMatch && lastMatch.index !== undefined && lastMatch.index > 0) {
     return text.substring(0, lastMatch.index + 1).trim();
   }
   
