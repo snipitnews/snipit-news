@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { fetchNewsForMultipleTopics } from '@/lib/newsapi';
 import { summarizeNews, NewsArticle } from '@/lib/openai';
@@ -520,15 +520,24 @@ export async function GET(request: NextRequest) {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.url.split('/api')[0];
       const nextUrl = `${baseUrl}/api/cron/send-digests?continuation=${nextIndex}`;
 
-      // Trigger next batch in background (don't await)
+      // Trigger next batch in background using after() to ensure it completes
       console.log(`[Cron] Triggering next batch: ${nextIndex}/${users.length} users remaining`);
-      fetch(nextUrl, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${process.env.CRON_SECRET}`,
-        },
-      }).catch((err) => {
-        console.error(`[Cron] ❌ Failed to trigger next batch (index ${nextIndex}):`, err);
+      after(async () => {
+        try {
+          const response = await fetch(nextUrl, {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${process.env.CRON_SECRET}`,
+            },
+          });
+          if (!response.ok) {
+            console.error(`[Cron] ❌ Next batch failed with status ${response.status}`);
+          } else {
+            console.log(`[Cron] ✅ Next batch triggered successfully`);
+          }
+        } catch (err) {
+          console.error(`[Cron] ❌ Failed to trigger next batch (index ${nextIndex}):`, err);
+        }
       });
 
       return NextResponse.json({
