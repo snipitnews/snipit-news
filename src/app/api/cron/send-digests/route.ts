@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse, after } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { fetchNewsForMultipleTopics } from '@/lib/newsapi';
 import { summarizeNews, NewsArticle } from '@/lib/openai';
@@ -31,7 +31,7 @@ interface ProcessResult {
   skipReason: string | null;
 }
 
-interface BatchResults {
+interface Results {
   processed: number;
   successful: number;
   failed: number;
@@ -40,12 +40,12 @@ interface BatchResults {
   skipReasons: string[];
 }
 
-// Maximum users to process in one batch before returning
-const MAX_BATCH_SIZE = 10;
 // Timeout for individual summarization calls (15 seconds)
 const SUMMARIZATION_TIMEOUT_MS = 15000;
 // Rate limit delay for email sending (Resend allows 2 req/sec, so 500ms between each)
-const EMAIL_RATE_LIMIT_DELAY_MS = 550; // Slightly over 500ms for safety margin
+const EMAIL_RATE_LIMIT_DELAY_MS = 550;
+// Process summarization in parallel batches to avoid overwhelming OpenAI
+const SUMMARIZATION_CONCURRENCY = 10;
 
 // Utility function to wrap promises with a timeout
 async function withTimeout<T>(
@@ -300,11 +300,10 @@ export async function GET(request: NextRequest) {
   const supabase = getSupabaseAdmin();
 
   try {
-    console.log('Starting daily digest process...');
+    console.log('[Cron] Starting daily digest process...');
 
     // Get all users with topics and their email settings
-    // Also ensure users without email settings get them created
-    const { data: users, error: usersError } = (await getSupabaseAdmin()
+    const { data: users, error: usersError } = (await supabase
       .from('users')
       .select(
         `
@@ -326,43 +325,8 @@ export async function GET(request: NextRequest) {
       error: unknown;
     };
 
-    // Ensure all users have email settings (create if missing)
-    if (users && users.length > 0) {
-      for (const user of users) {
-        if (!user.user_email_settings || user.user_email_settings.length === 0) {
-          console.log(`[Cron] Creating missing email settings for user ${user.email}`);
-          try {
-            await getSupabaseAdmin()
-              .from('user_email_settings')
-              .upsert(
-                {
-                  user_id: user.id,
-                  delivery_time: '08:30:00-05:00',
-                  timezone: 'America/New_York',
-                  paused: false,
-                } as never,
-                {
-                  onConflict: 'user_id',
-                }
-              );
-            // Refresh user's email settings
-            const { data: settings } = await getSupabaseAdmin()
-              .from('user_email_settings')
-              .select('paused, delivery_time, timezone')
-              .eq('user_id', user.id)
-              .single();
-            if (settings) {
-              user.user_email_settings = [settings as EmailSetting];
-            }
-          } catch (settingsError) {
-            console.error(`[Cron] Failed to create email settings for ${user.email}:`, settingsError);
-          }
-        }
-      }
-    }
-
     if (usersError) {
-      console.error('Error fetching users:', usersError);
+      console.error('[Cron] Error fetching users:', usersError);
       return NextResponse.json(
         { error: 'Failed to fetch users' },
         { status: 500 }
@@ -370,107 +334,93 @@ export async function GET(request: NextRequest) {
     }
 
     if (!users || users.length === 0) {
-      console.log('No users with topics found');
+      console.log('[Cron] No users with topics found');
       return NextResponse.json({ message: 'No users to process' });
     }
 
-    console.log(`Found ${users.length} users to process`);
+    console.log(`[Cron] Found ${users.length} users to process`);
 
-    // Check if there's a continuation token (for batch processing)
-    const url = new URL(request.url);
-    const continuationToken = url.searchParams.get('continuation');
-    const startIndex = continuationToken ? parseInt(continuationToken, 10) : 0;
-
-    // Get batch of users to process
-    const batchUsers = users.slice(startIndex, startIndex + MAX_BATCH_SIZE);
-    console.log(`Processing batch: ${batchUsers.length} users (starting at index ${startIndex})`);
-
-    // OPTIMIZATION: Collect all unique topics across batch users first
-    // This avoids fetching news for the same topic multiple times
-    const uniqueTopics = new Set<string>();
-    
-    for (const user of batchUsers) {
-      // Skip users who will be skipped anyway (paused, no topics)
+    // Filter to active users (not paused, have topics)
+    const activeUsers = users.filter(user => {
       const emailSettings = user.user_email_settings?.[0];
-      if (emailSettings?.paused || !user.user_topics || user.user_topics.length === 0) {
-        continue;
-      }
+      if (emailSettings?.paused) return false;
+      if (!user.user_topics || user.user_topics.length === 0) return false;
+      return true;
+    });
 
-      const topics = user.user_topics.map((ut) => ut.topic_name);
-      for (const topic of topics) {
-        uniqueTopics.add(topic);
+    const skippedCount = users.length - activeUsers.length;
+    console.log(`[Cron] ${activeUsers.length} active users, ${skippedCount} skipped (paused or no topics)`);
+
+    if (activeUsers.length === 0) {
+      return NextResponse.json({
+        message: 'No active users to process',
+        skipped: skippedCount
+      });
+    }
+
+    // Collect all unique topics across all active users
+    const uniqueTopics = new Set<string>();
+    for (const user of activeUsers) {
+      for (const ut of user.user_topics!) {
+        uniqueTopics.add(ut.topic_name);
       }
     }
 
-    console.log(`Found ${uniqueTopics.size} unique topics across ${batchUsers.length} users`);
+    console.log(`[Cron] Fetching news for ${uniqueTopics.size} unique topics`);
 
     // Fetch news once for all unique topics (major optimization!)
     const newsData: Record<string, NewsArticle[]> = {};
     if (uniqueTopics.size > 0) {
-      const topicsArray = Array.from(uniqueTopics);
-      console.log(`Fetching news for ${topicsArray.length} unique topics: ${topicsArray.join(', ')}`);
-      const fetchedNews = await fetchNewsForMultipleTopics(topicsArray);
+      const fetchedNews = await fetchNewsForMultipleTopics(Array.from(uniqueTopics));
       Object.assign(newsData, fetchedNews);
     }
 
-    const results: BatchResults = {
+    const results: Results = {
       processed: 0,
       successful: 0,
       failed: 0,
-      skipped: 0,
+      skipped: skippedCount,
       errors: [],
       skipReasons: [],
     };
 
-    // PHASE 1: Prepare all emails in parallel (summarization is parallelized)
-    console.log(`[Cron] Phase 1: Preparing ${batchUsers.length} emails in parallel...`);
+    // PHASE 1: Prepare all emails (summarization) with controlled concurrency
+    console.log(`[Cron] Phase 1: Preparing ${activeUsers.length} emails...`);
 
-    const preparePromises = batchUsers.map(user => prepareUserEmail(user, newsData));
-    const prepareResults = await Promise.allSettled(preparePromises);
-
-    // Collect prepared emails and handle skipped/failed users
     const preparedEmails: PreparedEmail[] = [];
 
-    for (let i = 0; i < prepareResults.length; i++) {
-      const settledResult = prepareResults[i];
+    // Process in batches to control OpenAI concurrency
+    for (let i = 0; i < activeUsers.length; i += SUMMARIZATION_CONCURRENCY) {
+      const batch = activeUsers.slice(i, i + SUMMARIZATION_CONCURRENCY);
+      const batchPromises = batch.map(user => prepareUserEmail(user, newsData));
+      const batchResults = await Promise.allSettled(batchPromises);
 
-      if (settledResult.status === 'fulfilled') {
-        const prepResult = settledResult.value;
-
-        if (prepResult.skipped) {
-          results.processed++;
-          results.skipped++;
-          if (prepResult.skipReason) {
-            results.skipReasons.push(prepResult.skipReason);
+      for (const settledResult of batchResults) {
+        if (settledResult.status === 'fulfilled') {
+          const prepResult = settledResult.value;
+          if (prepResult.skipped) {
+            results.skipped++;
+            if (prepResult.skipReason) results.skipReasons.push(prepResult.skipReason);
+          } else if (prepResult.error) {
+            results.failed++;
+            results.errors.push(prepResult.error);
+          } else if (prepResult.prepared && prepResult.emailData) {
+            preparedEmails.push(prepResult.emailData);
           }
-        } else if (prepResult.error) {
-          results.processed++;
+        } else {
           results.failed++;
-          results.errors.push(prepResult.error);
-        } else if (prepResult.prepared && prepResult.emailData) {
-          preparedEmails.push(prepResult.emailData);
+          results.errors.push(`Preparation failed: ${settledResult.reason}`);
         }
-      } else {
-        results.processed++;
-        results.failed++;
-        const errorMsg = `Email preparation failed: ${settledResult.reason}`;
-        results.errors.push(errorMsg);
-        console.error(`[Cron] ${errorMsg}`);
       }
     }
 
-    // PHASE 2: Send emails sequentially with rate limiting (Resend allows 2 req/sec)
-    console.log(`[Cron] Phase 2: Sending ${preparedEmails.length} emails with rate limiting...`);
+    // PHASE 2: Send emails sequentially with rate limiting (Resend: 2 req/sec)
+    console.log(`[Cron] Phase 2: Sending ${preparedEmails.length} emails...`);
 
     for (let i = 0; i < preparedEmails.length; i++) {
-      const emailData = preparedEmails[i];
+      if (i > 0) await delay(EMAIL_RATE_LIMIT_DELAY_MS);
 
-      // Add delay between emails to respect rate limit (skip delay for first email)
-      if (i > 0) {
-        await delay(EMAIL_RATE_LIMIT_DELAY_MS);
-      }
-
-      const sendResult = await sendPreparedEmail(emailData);
+      const sendResult = await sendPreparedEmail(preparedEmails[i]);
       results.processed++;
 
       if (sendResult.successful) {
@@ -482,84 +432,37 @@ export async function GET(request: NextRequest) {
     }
 
     const executionTime = Date.now() - startTime;
-    const hasMore = startIndex + batchUsers.length < users.length;
-    const status =
-      results.failed > 0 && results.successful === 0 ? 'failed' : 'success';
+    const status = results.failed > 0 && results.successful === 0 ? 'failed' : 'success';
 
-    // Log execution results to database with detailed information
+    // Log execution results
     try {
-      // Include skip reasons in errors array for better visibility
-      const allErrors = [
-        ...results.errors,
-        ...results.skipReasons.map(reason => `SKIPPED: ${reason}`)
-      ];
-      
       await supabase.from('cron_job_logs').insert({
         status,
         processed_count: results.processed,
         successful_count: results.successful,
         failed_count: results.failed,
         skipped_count: results.skipped,
-        errors: allErrors.length > 0 ? allErrors : [],
+        errors: results.errors.length > 0 ? results.errors.slice(0, 50) : [], // Cap errors to avoid huge logs
         execution_time_ms: executionTime,
       } as never);
-      
-      console.log(`[Cron] Logged execution: ${results.successful} successful, ${results.failed} failed, ${results.skipped} skipped`);
     } catch (logError) {
-      console.error('[Cron] Failed to log cron job execution:', logError);
-      // Don't fail the request if logging fails
+      console.error('[Cron] Failed to log execution:', logError);
     }
 
     console.log(
-      `Batch completed: ${results.processed} processed, ${results.successful} successful, ${results.failed} failed, ${results.skipped} skipped`
+      `[Cron] Completed: ${results.successful} sent, ${results.failed} failed, ${results.skipped} skipped in ${executionTime}ms`
     );
-
-    // If there are more users to process, trigger next batch via background fetch
-    if (hasMore) {
-      const nextIndex = startIndex + batchUsers.length;
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.url.split('/api')[0];
-      const nextUrl = `${baseUrl}/api/cron/send-digests?continuation=${nextIndex}`;
-
-      // Trigger next batch in background using after() to ensure it completes
-      console.log(`[Cron] Triggering next batch: ${nextIndex}/${users.length} users remaining`);
-      after(async () => {
-        try {
-          const response = await fetch(nextUrl, {
-            method: 'GET',
-            headers: {
-              Authorization: `Bearer ${process.env.CRON_SECRET}`,
-            },
-          });
-          if (!response.ok) {
-            console.error(`[Cron] ❌ Next batch failed with status ${response.status}`);
-          } else {
-            console.log(`[Cron] ✅ Next batch triggered successfully`);
-          }
-        } catch (err) {
-          console.error(`[Cron] ❌ Failed to trigger next batch (index ${nextIndex}):`, err);
-        }
-      });
-
-      return NextResponse.json({
-        message: 'Batch processing in progress',
-        results,
-        executionTimeMs: executionTime,
-        remaining: users.length - nextIndex,
-        nextBatchTriggered: true,
-        topicsFetched: uniqueTopics.size,
-      });
-    }
 
     return NextResponse.json({
       message: 'Daily digest process completed',
       results,
       executionTimeMs: executionTime,
+      uniqueTopics: uniqueTopics.size,
     });
   } catch (error) {
     const executionTime = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-    // Log failure to database
     try {
       await supabase.from('cron_job_logs').insert({
         status: 'failed',
@@ -571,15 +474,12 @@ export async function GET(request: NextRequest) {
         execution_time_ms: executionTime,
       } as never);
     } catch (logError) {
-      console.error('Failed to log cron job failure:', logError);
+      console.error('[Cron] Failed to log failure:', logError);
     }
 
-    console.error('Error in daily digest process:', error);
+    console.error('[Cron] Fatal error:', error);
     return NextResponse.json(
-      {
-        error: 'Daily digest process failed',
-        details: errorMessage,
-      },
+      { error: 'Daily digest process failed', details: errorMessage },
       { status: 500 }
     );
   }
