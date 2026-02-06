@@ -3,7 +3,7 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, email, timezone } = await request.json();
+    const { userId, email } = await request.json();
 
     if (!userId || !email) {
       return NextResponse.json(
@@ -11,9 +11,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    // Use detected timezone or default to EST
-    const userTimezone = timezone || 'America/New_York';
 
     // Ensure user record exists
     await getSupabaseAdmin()
@@ -29,21 +26,14 @@ export async function POST(request: NextRequest) {
         }
       );
 
-    // Ensure email settings exist with user's timezone
-    // Only update timezone if it's a new user (not updating existing)
-    const { data: existingSettings } = await getSupabaseAdmin()
-      .from('user_email_settings')
-      .select('timezone')
-      .eq('user_id', userId)
-      .single<{ timezone: string }>();
-
+    // Ensure email settings exist (timezone is fixed globally to EST)
     await getSupabaseAdmin()
       .from('user_email_settings')
       .upsert(
         {
           user_id: userId,
-          delivery_time: '06:30:00-05:00', // 6:30 AM (will be interpreted in user's timezone)
-          timezone: existingSettings?.timezone || userTimezone, // Keep existing or use new
+          delivery_time: '06:30:00-05:00', // 6:30 AM EST - fixed globally for all users
+          timezone: 'America/New_York', // Fixed to EST globally
           paused: false,
         } as never,
         {
