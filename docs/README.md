@@ -7,7 +7,7 @@ SnipIt is a personalized news delivery platform designed for busy individuals wh
 - **Passwordless Authentication**: Sign up with just your email - no passwords required
 - **Topic Selection**: Choose up to 3 topics (free) or 12 topics (pro) that interest you
 - **AI-Powered Summaries**: Get bullet-point summaries (free) or paragraph summaries (pro)
-- **Daily Delivery**: Receive your personalized digest every morning at 8 AM EST
+- **Daily Delivery**: Receive your personalized digest every morning at 6:30 AM EST
 - **Real-time News**: Get news from the last 24 hours
 - **Seamless Upgrades**: Easy upgrade to Pro tier for $0.99/month
 

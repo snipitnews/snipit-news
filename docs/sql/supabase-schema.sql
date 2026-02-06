@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS user_topics (
 CREATE TABLE IF NOT EXISTS user_email_settings (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES users(id) ON DELETE CASCADE NOT NULL UNIQUE,
-  delivery_time TIME WITH TIME ZONE DEFAULT '08:00:00-05:00', -- Default 8 AM EST
+  delivery_time TIME WITH TIME ZONE DEFAULT '06:30:00-05:00', -- Default 6:30 AM EST
   timezone TEXT DEFAULT 'America/New_York',
   paused BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

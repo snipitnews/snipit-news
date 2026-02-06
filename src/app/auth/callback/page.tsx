@@ -69,11 +69,8 @@ function AuthCallbackContent() {
         return;
       }
 
-            // Ensure user record exists with timezone detection
+            // Ensure user record exists (timezone is fixed to EST globally)
             try {
-              // Detect user's timezone from browser
-              const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-              
               await fetch('/api/auth/ensure-user', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -81,7 +78,6 @@ function AuthCallbackContent() {
                 body: JSON.stringify({
                   userId: session.user.id,
                   email: session.user.email,
-                  timezone: userTimezone,
                 }),
               });
             } catch (userError) {

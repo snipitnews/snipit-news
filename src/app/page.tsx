@@ -354,7 +354,7 @@ export default function LandingPage() {
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.03] border border-white/[0.08] mb-8"
                 >
                   <div className="h-2 w-2 rounded-full bg-[#FFA500]/80 animate-pulse" />
-                  <span className="text-sm text-white/60 tracking-wide">Trusted by thousands of readers worldwide</span>
+                  <span className="text-sm text-white/60 tracking-wide">Trusted by hundreds of readers worldwide</span>
                 </motion.div>
 
                 <motion.h1
@@ -483,7 +483,7 @@ export default function LandingPage() {
                 className="mt-16 md:mt-24 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto"
               >
                 {[
-                  { value: '8:30 AM', label: 'Daily Delivery' },
+                  { value: '6:30 AM EST', label: 'Daily Delivery' },
                   { value: '3', label: 'Topics Free' },
                   { value: '60s', label: 'Read Time' },
                   { value: 'AI', label: 'Powered' },
@@ -600,7 +600,7 @@ export default function LandingPage() {
                 Get your digest
               </h3>
               <p className="text-gray-400 leading-relaxed">
-                Receive your personalized news digest every morning at 8 AM EST.
+                Receive your personalized news digest every morning at 6:30 AM EST.
               </p>
             </div>
           </div>
@@ -719,10 +719,10 @@ export default function LandingPage() {
               <span className="text-lg font-medium text-white">SnipIt</span>
             </Link>
             <p className="text-gray-400 mb-2">
-              Stay informed, stay focused.
+              Stay informed, cut the fluff.
             </p>
             <p className="text-sm text-gray-500">
-              © 2024 SnipIt. All rights reserved.
+              © 2026 SnipIt. All rights reserved.
             </p>
           </div>
         </div>

@@ -67,9 +67,8 @@ export async function GET(request: NextRequest) {
         .from('user_email_settings')
         .insert({
           user_id: user.id,
-          // Delivery time is fixed globally to 8:30 AM (in user's timezone)
-          // Default timezone is EST, but will be updated based on user's location
-          delivery_time: '08:30:00-05:00',
+          // Delivery time is fixed globally to 6:30 AM EST for all users
+          delivery_time: '06:30:00-05:00',
           timezone: 'America/New_York',
           paused: false,
         } as never)
@@ -137,8 +136,8 @@ export async function PUT(request: NextRequest) {
       .upsert(
         {
           user_id: user.id,
-          // Delivery time is fixed globally to 8:30 AM (in user's timezone)
-          delivery_time: '08:30:00-05:00',
+          // Delivery time is fixed globally to 6:30 AM EST for all users
+          delivery_time: '06:30:00-05:00',
           timezone: 'America/New_York',
           paused: paused !== undefined ? paused : false,
           updated_at: new Date().toISOString(),

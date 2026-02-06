@@ -87,14 +87,31 @@ export const IPhoneVideoMockup: React.FC<IPhoneVideoMockupProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
+  const hasStartedRef = useRef(false);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
-        setIsVisible(entry.isIntersecting);
+        if (entry.isIntersecting && videoRef.current && !hasStartedRef.current) {
+          // Video is in view and hasn't started yet - start playing
+          videoRef.current.play().catch((error) => {
+            console.warn('Video autoplay failed:', error);
+            // Try again after a short delay (sometimes needed for mobile)
+            setTimeout(() => {
+              if (videoRef.current && !hasStartedRef.current) {
+                videoRef.current.play().catch(() => {
+                  // Autoplay still failed, user may need to interact
+                });
+              }
+            }, 100);
+          });
+          hasStartedRef.current = true;
+        }
       },
-      { threshold: 0.5 }
+      { 
+        threshold: 0.1, // Lower threshold to trigger earlier
+        rootMargin: '50px' // Start playing slightly before fully in view
+      }
     );
 
     if (containerRef.current) {
@@ -108,17 +125,27 @@ export const IPhoneVideoMockup: React.FC<IPhoneVideoMockupProps> = ({
     };
   }, []);
 
+  // Ensure video keeps playing once started (handles page visibility changes)
   useEffect(() => {
-    if (videoRef.current) {
-      if (isVisible) {
-        videoRef.current.play().catch(() => {
-          // Autoplay failed
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Handle cases where video might stop when page becomes hidden/visible
+    const handleVisibilityChange = () => {
+      if (!document.hidden && hasStartedRef.current && video.paused && !video.ended) {
+        // Page became visible again and video should be playing
+        video.play().catch(() => {
+          // Resume failed
         });
-      } else {
-        videoRef.current.pause();
       }
-    }
-  }, [isVisible]);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   const spec = DEVICE_SPECS[model];
   const W = spec.w;
@@ -191,6 +218,8 @@ export const IPhoneVideoMockup: React.FC<IPhoneVideoMockupProps> = ({
             loop
             muted
             playsInline
+            autoPlay={false}
+            preload="auto"
             className="absolute inset-0 w-full h-full object-cover"
             style={{ objectFit: 'cover' }}
           />

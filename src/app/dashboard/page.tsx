@@ -213,7 +213,7 @@ export default function Dashboard() {
         },
         credentials: 'include',
         body: JSON.stringify({
-          // Delivery time is fixed globally to 8:30 AM (in user's timezone)
+          // Delivery time is fixed globally to 6:30 AM EST
           paused: isPaused,
         }),
       });
@@ -244,7 +244,7 @@ export default function Dashboard() {
         },
         credentials: 'include',
         body: JSON.stringify({
-          // Delivery time is fixed globally to 8:30 AM (in user's timezone)
+          // Delivery time is fixed globally to 6:30 AM EST
           paused: newPausedState,
         }),
       });
@@ -363,8 +363,8 @@ export default function Dashboard() {
 
   // Format delivery time for display
   const formatDeliveryTime = () => {
-    // Delivery time is fixed globally to 8:30 AM (in user's timezone)
-    return '8:30 AM';
+    // Delivery time is fixed globally to 6:30 AM EST for all users
+    return '6:30 AM EST';
   };
 
   return (
@@ -573,7 +573,7 @@ export default function Dashboard() {
                   Delivery Time
                 </h3>
                 <p className="text-sm text-gray-400">
-                  Your daily digest is sent at <strong className="text-white">8:30 AM</strong> every day in your local timezone. This time is fixed and cannot be changed.
+                  Your daily digest is sent at <strong className="text-white">6:30 AM EST</strong> every day. This time is fixed and cannot be changed.
                 </p>
               </div>
 
