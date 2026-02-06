@@ -90,7 +90,7 @@ If you want a separate staging domain:
 1. Go to **Settings** → **Cron Jobs**
 2. Verify the cron job from `vercel.json` is active:
    - Path: `/api/cron/send-digests`
-   - Schedule: `30 13 * * *` (8:30 AM EST)
+   - Schedule: `30 11 * * *` (6:30 AM EST)
 3. Ensure `CRON_SECRET` is set in environment variables
 
 ## Pull Request Previews

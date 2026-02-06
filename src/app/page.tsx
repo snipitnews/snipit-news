@@ -483,7 +483,7 @@ export default function LandingPage() {
                 className="mt-16 md:mt-24 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto"
               >
                 {[
-                  { value: '8:30 AM', label: 'Daily Delivery' },
+                  { value: '6:30 AM', label: 'Daily Delivery' },
                   { value: '3', label: 'Topics Free' },
                   { value: '60s', label: 'Read Time' },
                   { value: 'AI', label: 'Powered' },
@@ -600,7 +600,7 @@ export default function LandingPage() {
                 Get your digest
               </h3>
               <p className="text-gray-400 leading-relaxed">
-                Receive your personalized news digest every morning at 8 AM EST.
+                Receive your personalized news digest every morning at 6:30 AM.
               </p>
             </div>
           </div>

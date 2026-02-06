@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       .upsert(
         {
           user_id: userId,
-          delivery_time: '08:30:00-05:00', // 8:30 AM (will be interpreted in user's timezone)
+          delivery_time: '06:30:00-05:00', // 6:30 AM (will be interpreted in user's timezone)
           timezone: existingSettings?.timezone || userTimezone, // Keep existing or use new
           paused: false,
         } as never,

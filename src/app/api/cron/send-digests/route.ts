@@ -337,7 +337,7 @@ export async function GET(request: NextRequest) {
               .upsert(
                 {
                   user_id: user.id,
-                  delivery_time: '08:30:00-05:00',
+                  delivery_time: '06:30:00-05:00',
                   timezone: 'America/New_York',
                   paused: false,
                 } as never,
