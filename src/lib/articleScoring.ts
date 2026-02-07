@@ -67,8 +67,14 @@ function calculateKeywordRelevance(article: NewsArticle, topic: string): number 
   const titleLower = article.title.toLowerCase();
   const descLower = article.description.toLowerCase();
 
-  // Split topic into keywords
-  const keywords = topicLower.split(/\s+/).filter((word) => word.length > 2);
+  // Meaningful short keywords that should NOT be filtered out
+  const MEANINGFUL_SHORT_WORDS = new Set([
+    'us', 'uk', 'eu', 'ai', 'ev', 'pc', 'nba', 'nfl', 'mlb', 'nhl',
+    'ufc', 'f1', 'gp', 'un', 'imf', 'who', 'ipo', 'ceo', 'cto',
+  ]);
+
+  // Split topic into keywords, keeping meaningful short words
+  const keywords = topicLower.split(/\s+/).filter((word) => word.length > 2 || MEANINGFUL_SHORT_WORDS.has(word));
 
   if (keywords.length === 0) {
     return 0.5; // Neutral score if no keywords

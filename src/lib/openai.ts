@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { getSupabaseAdmin } from './supabase';
-import { truncateAtSentenceBoundary } from './utils/articleCleaning';
+import { truncateAtSentenceBoundary, cleanArticleContent, isGarbageDescription } from './utils/articleCleaning';
 import { fetchSportsScores, prioritizeScores } from './sportsScores';
 
 export const openai = new OpenAI({
@@ -1025,61 +1025,6 @@ Each summary must have:
 // END TOPIC CONFIGURATION
 // ============================================================================
 
-// Helper function to clean description text for fallback use
-function cleanDescriptionForFallback(description: string): string {
-  if (!description) return '';
-
-  let cleaned = description
-    .replace(/Follow Us On Social Media/gi, '')
-    .replace(/Share on (Facebook|Twitter|LinkedIn|WhatsApp|Email)/gi, '')
-    .replace(/READ MORE:?.*$/i, '')
-    .replace(/ALSO READ:?.*$/i, '')
-    .replace(/Related:?.*$/i, '')
-    .replace(/Click here.*$/i, '')
-    .replace(/Subscribe.*$/i, '')
-    .replace(/Sign up.*$/i, '')
-    .replace(/\[.*?\]/g, '')
-    .replace(/\.\.\.\s*$/g, '')
-    .replace(/…\s*$/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  // If still starts with garbage (all caps), try to extract real content
-  if (/^[A-Z\s]{10,}/.test(cleaned) && cleaned.includes('.')) {
-    const match = cleaned.match(/\.\s+([A-Z][^.]+\.)/);
-    if (match) {
-      cleaned = match[1];
-    }
-  }
-
-  return cleaned;
-}
-
-// Helper function to check if a description is usable (not garbage)
-function isUsableDescription(description: string): boolean {
-  if (!description || description.length < 30) return false;
-
-  // Check for common garbage patterns
-  const garbagePatterns = [
-    /^Follow Us/i,
-    /^Share on/i,
-    /^Click here/i,
-    /^Subscribe/i,
-    /^READ MORE/i,
-    /^[A-Z\s]{20,}$/, // All caps gibberish
-  ];
-
-  for (const pattern of garbagePatterns) {
-    if (pattern.test(description)) return false;
-  }
-
-  // Check if it looks like a real sentence (has at least some lowercase letters and punctuation)
-  const hasLowercase = /[a-z]/.test(description);
-  const hasPunctuation = /[.,!?]/.test(description);
-
-  return hasLowercase && hasPunctuation;
-}
-
 // Helper function to deduplicate summaries by title and content
 function deduplicateSummaries(
   summaries: NewsSummary['summaries'],
@@ -1120,12 +1065,28 @@ function deduplicateSummaries(
     const normalizedContent = contentToCheck
       .replace(/[^\w\s]/g, ' ')
       .replace(/\s+/g, ' ')
-      .substring(0, 100); // Compare first 100 chars
+      .trim();
 
+    // Exact match check on full normalized content
     const isDuplicateContent = normalizedContent.length > 20 && seenContent.has(normalizedContent);
 
+    // Fuzzy match: check if 80%+ word overlap (Jaccard similarity) with any seen content
+    let isFuzzyDuplicate = false;
+    if (!isDuplicateContent && normalizedContent.length > 20) {
+      const words = new Set(normalizedContent.split(' '));
+      for (const seen of seenContent) {
+        const seenWords = new Set(seen.split(' '));
+        const intersection = [...words].filter(w => seenWords.has(w)).length;
+        const union = new Set([...words, ...seenWords]).size;
+        if (union > 0 && intersection / union > 0.8) {
+          isFuzzyDuplicate = true;
+          break;
+        }
+      }
+    }
+
     // Only add if not a duplicate
-    if (!isDuplicateTitle && !isDuplicateContent) {
+    if (!isDuplicateTitle && !isDuplicateContent && !isFuzzyDuplicate) {
       seenTitles.add(normalizedTitle);
       if (normalizedContent.length > 20) {
         seenContent.add(normalizedContent);
@@ -1488,22 +1449,29 @@ export async function summarizeNews(
   const isPersonalDevelopmentTopic = PERSONAL_DEVELOPMENT_TOPICS.some((personalDevTopic) =>
     topicLower.includes(personalDevTopic.toLowerCase())
   );
-  const topicKeywords = topicLower.split(/\s+/).filter(k => k.length > 2); // Filter out very short words
+  // Meaningful short keywords that should NOT be filtered out
+  const MEANINGFUL_SHORT_WORDS = new Set([
+    'us', 'uk', 'eu', 'ai', 'ev', 'pc', 'nba', 'nfl', 'mlb', 'nhl',
+    'ufc', 'f1', 'gp', 'un', 'imf', 'who', 'ipo', 'ceo', 'cto',
+  ]);
+
+  const topicKeywords = topicLower.split(/\s+/).filter(k => k.length > 2 || MEANINGFUL_SHORT_WORDS.has(k));
   const basicRelevanceFiltered = articles.filter((article) => {
     const searchText = `${article.title} ${article.description}`.toLowerCase();
     // For single-word topics, require exact word match (not substring)
-    // For multi-word topics, require at least one significant keyword
     if (topicKeywords.length === 1) {
       // Use word boundary matching for single words to avoid false positives
       const word = topicKeywords[0];
       const wordBoundaryRegex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
       return wordBoundaryRegex.test(searchText);
     } else {
-      // For multi-word topics, require at least one keyword match
-      return topicKeywords.some(keyword => {
+      // For multi-word topics with 3+ keywords, require at least 2 matches to reduce false positives
+      const minMatches = topicKeywords.length >= 3 ? 2 : 1;
+      const matchCount = topicKeywords.filter(keyword => {
         const wordBoundaryRegex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
         return wordBoundaryRegex.test(searchText);
-      });
+      }).length;
+      return matchCount >= minMatches;
     }
   });
 
@@ -2874,8 +2842,8 @@ URL: ${article.url}`;
   // Use top 3 latest articles with usable descriptions
   // Filter out articles with garbage descriptions first
   const usableArticles = articlesToSummarize.filter((article) => {
-    const cleanedDesc = cleanDescriptionForFallback(article.description);
-    return isUsableDescription(cleanedDesc);
+    const cleanedDesc = cleanArticleContent(article.description);
+    return !isGarbageDescription(cleanedDesc);
   });
 
   // If no usable articles, return empty (don't show garbage to users)
@@ -2896,7 +2864,7 @@ URL: ${article.url}`;
     fallbackResult = {
       topic,
       summaries: articlesToUse.map((article) => {
-        const cleanedDesc = cleanDescriptionForFallback(article.description);
+        const cleanedDesc = cleanArticleContent(article.description);
         return {
           title: article.title,
           summary: cleanedDesc.length > 300
@@ -2913,7 +2881,7 @@ URL: ${article.url}`;
     fallbackResult = {
       topic,
       summaries: articlesToUse.map((article) => {
-        const cleanedDesc = cleanDescriptionForFallback(article.description);
+        const cleanedDesc = cleanArticleContent(article.description);
         const bulletText = cleanedDesc.length > 200
           ? cleanedDesc.substring(0, 200).trim()
           : cleanedDesc;

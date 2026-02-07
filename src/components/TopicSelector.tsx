@@ -2,7 +2,11 @@
 
 import { useState, useMemo } from 'react';
 import { Search, ChevronDown, ChevronUp, Check, X } from 'lucide-react';
-import { TOPICS, searchTopics } from '@/lib/topics';
+
+interface MainTopic {
+  name: string;
+  subtopics: string[];
+}
 
 interface Topic {
   id: string;
@@ -16,6 +20,7 @@ interface TopicSelectorProps {
   onRemoveTopic: (topicId: string) => Promise<void>;
   maxTopics: number;
   canAddMore: boolean;
+  availableTopics: MainTopic[];
   isAddingTopic?: string | null;
   className?: string;
   compact?: boolean;
@@ -27,6 +32,7 @@ export default function TopicSelector({
   onRemoveTopic,
   maxTopics,
   canAddMore,
+  availableTopics,
   isAddingTopic = null,
   className = '',
   compact = false,
@@ -51,35 +57,35 @@ export default function TopicSelector({
   // Filter topics based on search and auto-expand matching categories
   const filteredTopics = useMemo(() => {
     if (!searchQuery.trim()) {
-      return TOPICS;
+      return availableTopics;
     }
 
-    const searchResults = searchTopics(searchQuery);
-    const mainTopicsMap = new Map<string, string[]>();
-
-    searchResults.forEach(({ mainTopic, subtopic }) => {
-      if (!mainTopicsMap.has(mainTopic)) {
-        mainTopicsMap.set(mainTopic, []);
-      }
-      mainTopicsMap.get(mainTopic)!.push(subtopic);
-    });
-
-    // Auto-expand categories that have matching subtopics when searching
+    const lowerQuery = searchQuery.toLowerCase();
     const categoriesToExpand = new Set<string>();
-    mainTopicsMap.forEach((subtopics, mainTopic) => {
-      if (subtopics.length > 0) {
-        categoriesToExpand.add(mainTopic);
-      }
-    });
+
+    const filtered = availableTopics
+      .map((topic) => {
+        if (topic.name.toLowerCase().includes(lowerQuery)) {
+          categoriesToExpand.add(topic.name);
+          return topic;
+        }
+        const matchingSubtopics = topic.subtopics.filter((s) =>
+          s.toLowerCase().includes(lowerQuery)
+        );
+        if (matchingSubtopics.length > 0) {
+          categoriesToExpand.add(topic.name);
+          return { ...topic, subtopics: matchingSubtopics };
+        }
+        return null;
+      })
+      .filter((t): t is MainTopic => t !== null);
+
     if (categoriesToExpand.size > 0) {
       setExpandedTopics(categoriesToExpand);
     }
 
-    return TOPICS.filter((topic) => mainTopicsMap.has(topic.name)).map((topic) => ({
-      ...topic,
-      subtopics: mainTopicsMap.get(topic.name) || topic.subtopics,
-    }));
-  }, [searchQuery]);
+    return filtered;
+  }, [searchQuery, availableTopics]);
 
   if (compact) {
     // Compact view for dashboard
@@ -307,4 +313,3 @@ export default function TopicSelector({
     </div>
   );
 }
-
