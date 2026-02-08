@@ -3087,9 +3087,7 @@ URL: ${article.url}`;
         const cleanedDesc = cleanArticleContent(article.description);
         return {
           title: article.title,
-          summary: cleanedDesc.length > 300
-            ? cleanedDesc.substring(0, 300).trim()
-            : cleanedDesc,
+          summary: truncateAtSentenceBoundary(cleanedDesc, 500),
           url: article.url,
           source: article.source.name,
         };
@@ -3102,9 +3100,7 @@ URL: ${article.url}`;
       topic,
       summaries: articlesToUse.map((article) => {
         const cleanedDesc = cleanArticleContent(article.description);
-        const bulletText = cleanedDesc.length > 200
-          ? cleanedDesc.substring(0, 200).trim()
-          : cleanedDesc;
+        const bulletText = truncateAtSentenceBoundary(cleanedDesc, 500);
         return {
           title: article.title,
           bullets: [bulletText],
