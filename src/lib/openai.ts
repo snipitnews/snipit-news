@@ -2497,6 +2497,7 @@ CRITICAL INSTRUCTIONS FOR SPORTS SUMMARIES:
 }
 
 CRITICAL: Return ONLY valid JSON. No markdown, no code blocks, no additional text. The JSON must be parseable.
+CRITICAL: Do NOT copy article descriptions verbatim. Write your OWN complete sentences. Article descriptions may be truncated/cut off — never reproduce truncated text. Every bullet must end with proper punctuation (period, question mark, or exclamation mark) and be a complete thought.
 
 Articles to choose from:
 ${articlesToSummarize
@@ -2705,10 +2706,21 @@ URL: ${article.url}`;
               console.warn(`[OpenAI] Bulleted summary has no bullets:`, s.title);
               return false;
             }
-            // Ensure all bullets are non-empty strings
-            const validBullets = s.bullets.filter((b: string) => typeof b === 'string' && b.trim().length > 0);
+            // Ensure all bullets are non-empty strings that end with proper punctuation
+            // (rejects truncated/cut-off text copied from article descriptions)
+            const validBullets = s.bullets.filter((b: string) => {
+              if (typeof b !== 'string' || b.trim().length === 0) return false;
+              const trimmed = b.trim();
+              // Reject bullets that don't end with sentence-ending punctuation
+              // This catches truncated article descriptions copied verbatim
+              if (!/[.!?)"']$/.test(trimmed)) {
+                console.warn(`[OpenAI] Rejecting truncated bullet (no terminal punctuation): "${trimmed.substring(trimmed.length - 40)}..."`);
+                return false;
+              }
+              return true;
+            });
             if (validBullets.length < 1) {
-              console.warn(`[OpenAI] Bulleted summary has invalid bullets:`, s.title);
+              console.warn(`[OpenAI] Bulleted summary has no valid bullets (all truncated or empty):`, s.title);
               return false;
             }
             // Keep all valid bullets (can be 1 or more)

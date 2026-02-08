@@ -98,8 +98,11 @@ async function fetchNewsForTopicWithTimeWindow(
   // Map and filter articles - prioritize content over description for better context
   const mappedArticles = articlesToUse
     .map((article: NewsAPIArticle) => {
-      // Use content if available (usually more detailed), otherwise description
-      const textContent = article.content || article.description || '';
+      // Prefer description (usually a complete sentence) over content
+      // NewsAPI free tier truncates content at ~200 chars with "[+N chars]" marker,
+      // which gets stripped by cleanArticleContent, leaving cut-off text.
+      // Description is shorter but complete, giving GPT better context for summaries.
+      const textContent = article.description || article.content || '';
       // Clean up content using shared utility
       const cleanContent = cleanArticleContent(textContent);
 
