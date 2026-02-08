@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { getSupabaseAdmin } from './supabase';
-import { truncateAtSentenceBoundary } from './utils/articleCleaning';
+import { truncateAtSentenceBoundary, cleanArticleContent, isGarbageDescription } from './utils/articleCleaning';
 import { fetchSportsScores, prioritizeScores } from './sportsScores';
 
 export const openai = new OpenAI({
@@ -1025,61 +1025,6 @@ Each summary must have:
 // END TOPIC CONFIGURATION
 // ============================================================================
 
-// Helper function to clean description text for fallback use
-function cleanDescriptionForFallback(description: string): string {
-  if (!description) return '';
-
-  let cleaned = description
-    .replace(/Follow Us On Social Media/gi, '')
-    .replace(/Share on (Facebook|Twitter|LinkedIn|WhatsApp|Email)/gi, '')
-    .replace(/READ MORE:?.*$/i, '')
-    .replace(/ALSO READ:?.*$/i, '')
-    .replace(/Related:?.*$/i, '')
-    .replace(/Click here.*$/i, '')
-    .replace(/Subscribe.*$/i, '')
-    .replace(/Sign up.*$/i, '')
-    .replace(/\[.*?\]/g, '')
-    .replace(/\.\.\.\s*$/g, '')
-    .replace(/…\s*$/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  // If still starts with garbage (all caps), try to extract real content
-  if (/^[A-Z\s]{10,}/.test(cleaned) && cleaned.includes('.')) {
-    const match = cleaned.match(/\.\s+([A-Z][^.]+\.)/);
-    if (match) {
-      cleaned = match[1];
-    }
-  }
-
-  return cleaned;
-}
-
-// Helper function to check if a description is usable (not garbage)
-function isUsableDescription(description: string): boolean {
-  if (!description || description.length < 30) return false;
-
-  // Check for common garbage patterns
-  const garbagePatterns = [
-    /^Follow Us/i,
-    /^Share on/i,
-    /^Click here/i,
-    /^Subscribe/i,
-    /^READ MORE/i,
-    /^[A-Z\s]{20,}$/, // All caps gibberish
-  ];
-
-  for (const pattern of garbagePatterns) {
-    if (pattern.test(description)) return false;
-  }
-
-  // Check if it looks like a real sentence (has at least some lowercase letters and punctuation)
-  const hasLowercase = /[a-z]/.test(description);
-  const hasPunctuation = /[.,!?]/.test(description);
-
-  return hasLowercase && hasPunctuation;
-}
-
 // Helper function to deduplicate summaries by title and content
 function deduplicateSummaries(
   summaries: NewsSummary['summaries'],
@@ -1120,12 +1065,28 @@ function deduplicateSummaries(
     const normalizedContent = contentToCheck
       .replace(/[^\w\s]/g, ' ')
       .replace(/\s+/g, ' ')
-      .substring(0, 100); // Compare first 100 chars
+      .trim();
 
+    // Exact match check on full normalized content
     const isDuplicateContent = normalizedContent.length > 20 && seenContent.has(normalizedContent);
 
+    // Fuzzy match: check if 80%+ word overlap (Jaccard similarity) with any seen content
+    let isFuzzyDuplicate = false;
+    if (!isDuplicateContent && normalizedContent.length > 20) {
+      const words = new Set(normalizedContent.split(' '));
+      for (const seen of seenContent) {
+        const seenWords = new Set(seen.split(' '));
+        const intersection = [...words].filter(w => seenWords.has(w)).length;
+        const union = new Set([...words, ...seenWords]).size;
+        if (union > 0 && intersection / union > 0.8) {
+          isFuzzyDuplicate = true;
+          break;
+        }
+      }
+    }
+
     // Only add if not a duplicate
-    if (!isDuplicateTitle && !isDuplicateContent) {
+    if (!isDuplicateTitle && !isDuplicateContent && !isFuzzyDuplicate) {
       seenTitles.add(normalizedTitle);
       if (normalizedContent.length > 20) {
         seenContent.add(normalizedContent);
@@ -1449,6 +1410,8 @@ export async function summarizeNews(
   const isPoliticsTopic = POLITICS_TOPICS.some((polTopic) =>
     topicLower.includes(polTopic.toLowerCase())
   );
+  const isUsPoliticsTopic = topicLower.includes('u.s. politics') || topicLower.includes('us politics');
+  const isGlobalPoliticsTopic = topicLower.includes('global politics');
   const isWorldNewsTopic = WORLD_NEWS_TOPICS.some((worldTopic) =>
     topicLower.includes(worldTopic.toLowerCase())
   );
@@ -1488,22 +1451,29 @@ export async function summarizeNews(
   const isPersonalDevelopmentTopic = PERSONAL_DEVELOPMENT_TOPICS.some((personalDevTopic) =>
     topicLower.includes(personalDevTopic.toLowerCase())
   );
-  const topicKeywords = topicLower.split(/\s+/).filter(k => k.length > 2); // Filter out very short words
+  // Meaningful short keywords that should NOT be filtered out
+  const MEANINGFUL_SHORT_WORDS = new Set([
+    'us', 'uk', 'eu', 'ai', 'ev', 'pc', 'nba', 'nfl', 'mlb', 'nhl',
+    'ufc', 'f1', 'gp', 'un', 'imf', 'who', 'ipo', 'ceo', 'cto',
+  ]);
+
+  const topicKeywords = topicLower.split(/\s+/).filter(k => k.length > 2 || MEANINGFUL_SHORT_WORDS.has(k));
   const basicRelevanceFiltered = articles.filter((article) => {
     const searchText = `${article.title} ${article.description}`.toLowerCase();
     // For single-word topics, require exact word match (not substring)
-    // For multi-word topics, require at least one significant keyword
     if (topicKeywords.length === 1) {
       // Use word boundary matching for single words to avoid false positives
       const word = topicKeywords[0];
       const wordBoundaryRegex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
       return wordBoundaryRegex.test(searchText);
     } else {
-      // For multi-word topics, require at least one keyword match
-      return topicKeywords.some(keyword => {
+      // For multi-word topics with 3+ keywords, require at least 2 matches to reduce false positives
+      const minMatches = topicKeywords.length >= 3 ? 2 : 1;
+      const matchCount = topicKeywords.filter(keyword => {
         const wordBoundaryRegex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
         return wordBoundaryRegex.test(searchText);
-      });
+      }).length;
+      return matchCount >= minMatches;
     }
   });
 
@@ -1831,15 +1801,113 @@ Pick 1–2 DISTINCT updates that matter most for the topic. Prefer 2 if possible
 
 Style:
 - Each bullet must give the full picture fast: what happened + what changes + who it affects.
-- Include the “why now” driver (vote, court ruling, agency action, diplomatic move, scandal, etc.).
+- Include the "why now" driver (vote, court ruling, agency action, diplomatic move, scandal, etc.).
 - Include numbers (vote counts, poll numbers, dates) ONLY if explicitly stated in the article text provided. Never guess.
-- Avoid speculation unless the article itself frames it as such and you attribute it (“according to…”, “analysts say…”).
+- Avoid speculation unless the article itself frames it as such and you attribute it ("according to…", "analysts say…").
 
 Output rules:
 - "title": short Snipit headline (6–15 words).
 - "bullets": up to 2 bullet strings, up to 3 short sentences each.
 - "url" and "source" must match the best supporting article.
 - No duplicate titles, no repeated angles, no fluff.`;
+
+  const usPoliticsFreeInstructions = `You are Snipit, a no-fluff U.S. POLITICS editor (FREE TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+MISSION
+From the provided candidate articles (title + source + snippet/excerpt + url + published_at), select ONLY stories that are clearly about U.S. government/politics/policy. Ignore any miscategorized or spammy items.
+
+PICK COUNT (FREE)
+Pick 1–2 DISTINCT updates that matter most for the topic. Prefer 2 if possible (never exceed 2).
+
+HARD FILTERS (DO NOT VIOLATE)
+Include ONLY if the story is primarily about U.S. politics/governance, such as:
+- White House / President / federal agencies (DOJ, DHS, EPA, SEC, etc.)
+- Congress (bills, votes, hearings, budget/taxes, shutdown/debt ceiling)
+- Supreme Court / federal courts (rulings, injunctions with national impact)
+- U.S. elections/campaigns (ballot access, major court cases, credible polling shifts, debate rules)
+- State politics ONLY if it has broad national significance (major states, landmark rulings, multi-state actions)
+
+EXCLUDE (AUTOMATIC REJECT)
+- Non-U.S. domestic politics (India-only, etc.) without direct U.S. policy action
+- Cars/product launches, exams/notifications, sports/celebrity, random crime blotter
+- Sensational "on cam" clips with no verified U.S. policy action
+- Articles with vague claims, unclear actors, or no real decision/action
+- Duplicate coverage of the same event (keep the best one)
+
+RANKING (WHAT "MATTERS MOST")
+Prioritize real ACTION + CONSEQUENCE:
+1) Laws/regulations advanced/blocked; executive orders; agency rules; court rulings/injunctions
+2) Election moves that change the race (legal rulings, ballot access, major polling w/ credible source)
+3) Major U.S. foreign-policy decisions (aid, sanctions, deployments) ONLY if driven by U.S. government action
+
+STYLE (KEEP YOUR EXISTING RULES)
+- Each bullet must give the full picture fast: what happened + what changes + who it affects.
+- Include the "why now" driver (vote, court ruling, agency action, diplomatic move, scandal, etc.).
+- Include numbers (vote counts, poll numbers, dates) ONLY if explicitly stated in the article text provided. Never guess.
+- Avoid speculation unless the article itself frames it as such and you attribute it ("according to…", "analysts say…").
+
+OUTPUT RULES (KEEP EXACT SHAPE)
+For each summary object:
+- "title": short Snipit headline (6–15 words).
+- "bullets": up to 2 bullet strings, up to 3 short sentences each.
+- "url" and "source" must match the best supporting article.
+- No duplicate titles, no repeated angles, no fluff.
+
+FINAL QUALITY CHECK (BEFORE RETURNING JSON)
+- If any chosen story could fit a different topic better than U.S. Politics, remove it.
+- If an item is not centered on a U.S. political institution/actor, remove it.
+- If fewer than 1 qualifying story exists, return {"summaries": []} (no filler).`;
+
+  const usPoliticsPaidInstructions = `You are Snipit, a no-fluff U.S. POLITICS editor (PAID TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+MISSION
+From the provided candidate articles (title + source + snippet/excerpt + url + published_at), select ONLY stories that are clearly about U.S. government/politics/policy. Ignore any miscategorized or spammy items.
+
+PICK COUNT (PAID)
+Pick 4–5 DISTINCT updates that matter most for the topic. Prefer 5 if possible (never exceed 5).
+
+HARD FILTERS (DO NOT VIOLATE)
+Include ONLY if the story is primarily about U.S. politics/governance, such as:
+- White House / President / federal agencies (DOJ, DHS, EPA, SEC, etc.)
+- Congress (bills, votes, hearings, budget/taxes, shutdown/debt ceiling)
+- Supreme Court / federal courts (rulings, injunctions with national impact)
+- U.S. elections/campaigns (ballot access, major court cases, credible polling shifts, debate rules)
+- State politics ONLY if it has broad national significance (major states, landmark rulings, multi-state actions)
+
+EXCLUDE (AUTOMATIC REJECT)
+- Non-U.S. domestic politics (India-only, etc.) without direct U.S. policy action
+- Cars/product launches, exams/notifications, sports/celebrity, random crime blotter
+- Sensational "on cam" clips with no verified U.S. policy action
+- Articles with vague claims, unclear actors, or no real decision/action
+- Duplicate coverage of the same event (keep the best one)
+
+RANKING (WHAT "MATTERS MOST")
+Prioritize real ACTION + CONSEQUENCE:
+1) Laws/regulations advanced/blocked; executive orders; agency rules; court rulings/injunctions
+2) Election moves that change the race (legal rulings, ballot access, major polling w/ credible source)
+3) Major U.S. foreign-policy decisions (aid, sanctions, deployments) ONLY if driven by U.S. government action
+
+STYLE (KEEP YOUR EXISTING RULES)
+- Each bullet must give the full picture fast: what happened + what changes + who it affects.
+- Include the "why now" driver (vote, court ruling, agency action, diplomatic move, scandal, etc.).
+- Include numbers (vote counts, poll numbers, dates) ONLY if explicitly stated in the article text provided. Never guess.
+- Avoid speculation unless the article itself frames it as such and you attribute it ("according to…", "analysts say…").
+
+OUTPUT RULES (KEEP EXACT SHAPE)
+For each summary object:
+- "title": short Snipit headline (6–15 words).
+- "bullets": up to 2 bullet strings, up to 3 short sentences each.
+- "url" and "source" must match the best supporting article.
+- No duplicate titles, no repeated angles, no fluff.
+
+FINAL QUALITY CHECK (BEFORE RETURNING JSON)
+- If fewer than 4 qualifying stories exist, return fewer (no filler).
+- If any chosen story could fit a different topic better than U.S. Politics, remove it.
+- If an item is not centered on a U.S. political institution/actor, remove it.`;
 
   const politicsPaidInstructions = `You are Snipit, a no-fluff politics summarizer (PAID TIER).
 
@@ -1894,6 +1962,106 @@ Output rules:
 - "bullets": up to 2 bullet strings, up to 3 short sentences each.
 - "url" and "source" must match the best supporting article.
 - No repetition.`;
+
+  const globalPoliticsFreeInstructions = `You are Snipit, a no-fluff GLOBAL POLITICS editor (FREE TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+MISSION
+From the provided candidate articles (title + source + snippet/excerpt + url + published_at), select ONLY stories that are clearly about international politics, geopolitics, diplomacy, conflict, sanctions, elections, and major government actions outside the U.S. (and cross-border policy). Ignore miscategorized or spammy items.
+
+PICK COUNT (FREE)
+Pick 1–2 DISTINCT updates that matter most for the topic. Prefer 2 if possible (never exceed 2).
+
+HARD FILTERS (DO NOT VIOLATE)
+Include ONLY if the story is primarily about:
+- National governments/political leaders (outside the U.S.) taking action (laws, elections, cabinet changes, crackdowns, resignations)
+- International diplomacy (summits, treaties, recognition, expulsions, hostage/prisoner deals)
+- Geopolitical conflict with clear state actors (wars, major escalations/de-escalations, ceasefires, peace talks)
+- Sanctions/export controls/major cross-border policy shifts (including U.S./EU/UN actions affecting other countries)
+- Major international institutions (UN, NATO, EU, ICC/ICJ, G7/G20, OPEC when it's political power leverage)
+
+EXCLUDE (AUTOMATIC REJECT)
+- Local crime/accidents not tied to politics/policy
+- Cars/product launches, exams/notifications, sports/celebrity
+- "On cam" sensational clips with no verified government action
+- Opinion-only pieces with no new event/decision
+- Duplicate coverage of the same event (keep the best one)
+
+RANKING (WHAT "MATTERS MOST")
+Prioritize real ACTION + CONSEQUENCE:
+1) Wars/ceasefires/major escalations; sanctions; military deployments; border closures
+2) Elections/coups/state instability that changes power
+3) Treaties/summits/recognition; major policy shifts affecting trade, migration, energy
+4) High-impact domestic laws with international ripple effects (mass protests, crackdowns, major court rulings)
+
+STYLE
+- Each bullet must give the full picture fast: what happened + what changes + who it affects.
+- Include the "why now" driver (election result, vote, court ruling, sanctions, diplomatic move, conflict escalation, leadership shakeup).
+- Include numbers (casualty counts, vote totals, dates, sanctions amounts) ONLY if explicitly stated in the article text provided. Never guess.
+- Avoid speculation unless the article itself frames it as such and you attribute it ("according to…", "analysts say…").
+
+OUTPUT RULES (KEEP EXACT SHAPE)
+For each summary object:
+- "title": short Snipit headline (6–15 words).
+- "bullets": up to 2 bullet strings, up to 3 short sentences each.
+- "url" and "source" must match the best supporting article.
+- No duplicate titles, no repeated angles, no fluff.
+
+FINAL QUALITY CHECK
+- If any chosen story could fit a different topic better than Global Politics, remove it.
+- If the main actor isn't a government/international institution or the event has no political consequence, remove it.
+- If fewer than 1 qualifying story exists, return {"summaries": []} (no filler).`;
+
+  const globalPoliticsPaidInstructions = `You are Snipit, a no-fluff GLOBAL POLITICS editor (PAID TIER).
+
+Return ONLY valid JSON: {"summaries":[...]}.
+
+MISSION
+From the provided candidate articles (title + source + snippet/excerpt + url + published_at), select ONLY stories that are clearly about international politics, geopolitics, diplomacy, conflict, sanctions, elections, and major government actions outside the U.S. (and cross-border policy). Ignore miscategorized or spammy items.
+
+PICK COUNT (PAID)
+Pick 4–5 DISTINCT updates that matter most for the topic. Prefer 5 if possible (never exceed 5).
+
+HARD FILTERS (DO NOT VIOLATE)
+Include ONLY if the story is primarily about:
+- National governments/political leaders (outside the U.S.) taking action (laws, elections, cabinet changes, crackdowns, resignations)
+- International diplomacy (summits, treaties, recognition, expulsions, hostage/prisoner deals)
+- Geopolitical conflict with clear state actors (wars, major escalations/de-escalations, ceasefires, peace talks)
+- Sanctions/export controls/major cross-border policy shifts (including U.S./EU/UN actions affecting other countries)
+- Major international institutions (UN, NATO, EU, ICC/ICJ, G7/G20, OPEC when it's political power leverage)
+
+EXCLUDE (AUTOMATIC REJECT)
+- Local crime/accidents not tied to politics/policy
+- Cars/product launches, exams/notifications, sports/celebrity
+- "On cam" sensational clips with no verified government action
+- Opinion-only pieces with no new event/decision
+- Duplicate coverage of the same event (keep the best one)
+
+RANKING (WHAT "MATTERS MOST")
+Prioritize real ACTION + CONSEQUENCE:
+1) Wars/ceasefires/major escalations; sanctions; military deployments; border closures
+2) Elections/coups/state instability that changes power
+3) Treaties/summits/recognition; major policy shifts affecting trade, migration, energy
+4) High-impact domestic laws with international ripple effects (mass protests, crackdowns, major court rulings)
+
+STYLE
+- Each bullet must give the full picture fast: what happened + what changes + who it affects.
+- Include the "why now" driver (election result, vote, court ruling, sanctions, diplomatic move, conflict escalation, leadership shakeup).
+- Include numbers (casualty counts, vote totals, dates, sanctions amounts) ONLY if explicitly stated in the article text provided. Never guess.
+- Avoid speculation unless the article itself frames it as such and you attribute it ("according to…", "analysts say…").
+
+OUTPUT RULES (KEEP EXACT SHAPE)
+For each summary object:
+- "title": short Snipit headline (6–15 words).
+- "bullets": up to 2 bullet strings, up to 3 short sentences each.
+- "url" and "source" must match the best supporting article.
+- No duplicate titles, no repeated angles, no fluff.
+
+FINAL QUALITY CHECK
+- If fewer than 4 qualifying stories exist, return fewer (no filler).
+- If any chosen story could fit a different topic better than Global Politics, remove it.
+- If the main actor isn't a government/international institution or the event has no political consequence, remove it.`;
 
   const scienceFreeInstructions = `You are Snipit, a no-fluff science summarizer (FREE TIER).
 
@@ -2379,8 +2547,16 @@ You are summarizing news articles about "${topic}". From the articles below, ${
               : 'apply the FREE health & wellness instructions exactly as written. Focus on 1–2 distinct updates, prioritizing guidelines, studies, recalls, and actionable advice with what it means for a normal person and what to do next. Include study type/phase and key result only if explicitly stated. No diagnosis language or miracle framing.'
             : isPoliticsTopic
               ? isPaid
-                ? 'apply the PAID politics instructions exactly as written. Focus on 4–5 distinct updates; full picture (what happened + what changes + who it affects); include "why now" drivers; include numbers only if provided; attribute speculation.'
-                : 'apply the FREE politics instructions exactly as written. Focus on 1–2 distinct updates; full picture (what happened + what changes + who it affects); include "why now" drivers; include numbers only if provided; attribute speculation.'
+                ? isUsPoliticsTopic
+                  ? 'apply the PAID U.S. POLITICS instructions exactly as written. Select ONLY stories about U.S. government/politics/policy; pick 4–5 distinct updates that matter most; prioritize real ACTION + CONSEQUENCE (laws/regulations, executive orders, court rulings, election moves); exclude non-U.S. politics, spam, and vague claims; return fewer if fewer than 4 qualifying stories exist.'
+                  : isGlobalPoliticsTopic
+                    ? 'apply the PAID GLOBAL POLITICS instructions exactly as written. Select ONLY stories about international politics, geopolitics, diplomacy, conflict, sanctions, elections, and major government actions outside the U.S.; pick 4–5 distinct updates that matter most; prioritize real ACTION + CONSEQUENCE (wars/ceasefires, elections/coups, treaties/summits, high-impact domestic laws); exclude local crime, spam, and vague claims; return fewer if fewer than 4 qualifying stories exist.'
+                    : 'apply the PAID politics instructions exactly as written. Focus on 4–5 distinct updates; full picture (what happened + what changes + who it affects); include "why now" drivers; include numbers only if provided; attribute speculation.'
+                : isUsPoliticsTopic
+                  ? 'apply the FREE U.S. POLITICS instructions exactly as written. Select ONLY stories about U.S. government/politics/policy; pick 1–2 distinct updates that matter most; prioritize real ACTION + CONSEQUENCE (laws/regulations, executive orders, court rulings, election moves); exclude non-U.S. politics, spam, and vague claims; return empty array if no qualifying stories exist.'
+                  : isGlobalPoliticsTopic
+                    ? 'apply the FREE GLOBAL POLITICS instructions exactly as written. Select ONLY stories about international politics, geopolitics, diplomacy, conflict, sanctions, elections, and major government actions outside the U.S.; pick 1–2 distinct updates that matter most; prioritize real ACTION + CONSEQUENCE (wars/ceasefires, elections/coups, treaties/summits, high-impact domestic laws); exclude local crime, spam, and vague claims; return empty array if no qualifying stories exist.'
+                    : 'apply the FREE politics instructions exactly as written. Focus on 1–2 distinct updates; full picture (what happened + what changes + who it affects); include "why now" drivers; include numbers only if provided; attribute speculation.'
               : isWorldNewsTopic
                 ? isPaid
                   ? 'apply the PAID world news instructions exactly as written. Focus on 4–5 distinct updates; answer what happened + where + why it matters globally; prioritize conflicts, elections, sanctions, diplomacy, disasters, economic shocks; include concrete details only if explicitly stated; stick to verified facts, no editorializing.'
@@ -2473,7 +2649,7 @@ ${isSportsTopic
         : isHealthTopic
           ? (isPaid ? healthPaidInstructions : healthFreeInstructions)
           : isPoliticsTopic
-            ? (isPaid ? politicsPaidInstructions : politicsFreeInstructions)
+            ? (isPaid ? (isUsPoliticsTopic ? usPoliticsPaidInstructions : (isGlobalPoliticsTopic ? globalPoliticsPaidInstructions : politicsPaidInstructions)) : (isUsPoliticsTopic ? usPoliticsFreeInstructions : (isGlobalPoliticsTopic ? globalPoliticsFreeInstructions : politicsFreeInstructions)))
             : isWorldNewsTopic
               ? (isPaid ? worldNewsPaidInstructions : worldNewsFreeInstructions)
               : isScienceTopic
@@ -2529,6 +2705,7 @@ CRITICAL INSTRUCTIONS FOR SPORTS SUMMARIES:
 }
 
 CRITICAL: Return ONLY valid JSON. No markdown, no code blocks, no additional text. The JSON must be parseable.
+CRITICAL: Do NOT copy article descriptions verbatim. Write your OWN complete sentences. Article descriptions may be truncated/cut off — never reproduce truncated text. Every bullet must end with proper punctuation (period, question mark, or exclamation mark) and be a complete thought.
 
 Articles to choose from:
 ${articlesToSummarize
@@ -2737,10 +2914,21 @@ URL: ${article.url}`;
               console.warn(`[OpenAI] Bulleted summary has no bullets:`, s.title);
               return false;
             }
-            // Ensure all bullets are non-empty strings
-            const validBullets = s.bullets.filter((b: string) => typeof b === 'string' && b.trim().length > 0);
+            // Ensure all bullets are non-empty strings that end with proper punctuation
+            // (rejects truncated/cut-off text copied from article descriptions)
+            const validBullets = s.bullets.filter((b: string) => {
+              if (typeof b !== 'string' || b.trim().length === 0) return false;
+              const trimmed = b.trim();
+              // Reject bullets that don't end with sentence-ending punctuation
+              // This catches truncated article descriptions copied verbatim
+              if (!/[.!?)"']$/.test(trimmed)) {
+                console.warn(`[OpenAI] Rejecting truncated bullet (no terminal punctuation): "${trimmed.substring(trimmed.length - 40)}..."`);
+                return false;
+              }
+              return true;
+            });
             if (validBullets.length < 1) {
-              console.warn(`[OpenAI] Bulleted summary has invalid bullets:`, s.title);
+              console.warn(`[OpenAI] Bulleted summary has no valid bullets (all truncated or empty):`, s.title);
               return false;
             }
             // Keep all valid bullets (can be 1 or more)
@@ -2874,8 +3062,8 @@ URL: ${article.url}`;
   // Use top 3 latest articles with usable descriptions
   // Filter out articles with garbage descriptions first
   const usableArticles = articlesToSummarize.filter((article) => {
-    const cleanedDesc = cleanDescriptionForFallback(article.description);
-    return isUsableDescription(cleanedDesc);
+    const cleanedDesc = cleanArticleContent(article.description);
+    return !isGarbageDescription(cleanedDesc);
   });
 
   // If no usable articles, return empty (don't show garbage to users)
@@ -2896,12 +3084,10 @@ URL: ${article.url}`;
     fallbackResult = {
       topic,
       summaries: articlesToUse.map((article) => {
-        const cleanedDesc = cleanDescriptionForFallback(article.description);
+        const cleanedDesc = cleanArticleContent(article.description);
         return {
           title: article.title,
-          summary: cleanedDesc.length > 300
-            ? cleanedDesc.substring(0, 300).trim()
-            : cleanedDesc,
+          summary: truncateAtSentenceBoundary(cleanedDesc, 500),
           url: article.url,
           source: article.source.name,
         };
@@ -2913,10 +3099,8 @@ URL: ${article.url}`;
     fallbackResult = {
       topic,
       summaries: articlesToUse.map((article) => {
-        const cleanedDesc = cleanDescriptionForFallback(article.description);
-        const bulletText = cleanedDesc.length > 200
-          ? cleanedDesc.substring(0, 200).trim()
-          : cleanedDesc;
+        const cleanedDesc = cleanArticleContent(article.description);
+        const bulletText = truncateAtSentenceBoundary(cleanedDesc, 500);
         return {
           title: article.title,
           bullets: [bulletText],

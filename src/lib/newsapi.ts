@@ -3,7 +3,7 @@ import { getSourcesForTopic } from './newsSources';
 import { fetchNewsForTopicFromCurrents, getRemainingRequests } from './currentsapi';
 import { getSupabaseAdmin } from './supabase';
 import { scoreArticles, selectTopArticles } from './articleScoring';
-import { cleanArticleContent } from './utils/articleCleaning';
+import { cleanArticleContent, isGarbageDescription } from './utils/articleCleaning';
 
 const NEWS_API_KEY = process.env.NEWS_API_KEY;
 const NEWS_API_BASE_URL = 'https://newsapi.org/v2';
@@ -98,14 +98,20 @@ async function fetchNewsForTopicWithTimeWindow(
   // Map and filter articles - prioritize content over description for better context
   const mappedArticles = articlesToUse
     .map((article: NewsAPIArticle) => {
-      // Use content if available (usually more detailed), otherwise description
-      const textContent = article.content || article.description || '';
+      // Prefer description (usually a complete sentence) over content
+      // NewsAPI free tier truncates content at ~200 chars with "[+N chars]" marker,
+      // which gets stripped by cleanArticleContent, leaving cut-off text.
+      // Description is shorter but complete, giving GPT better context for summaries.
+      const textContent = article.description || article.content || '';
       // Clean up content using shared utility
       const cleanContent = cleanArticleContent(textContent);
 
+      // Reject garbage descriptions so the filter below drops the article
+      const description = isGarbageDescription(cleanContent) ? 'No description' : cleanContent;
+
       return {
         title: article.title || 'No title',
-        description: cleanContent || 'No description',
+        description: description || 'No description',
         url: article.url || '',
         publishedAt: article.publishedAt || '',
         source: {
@@ -118,7 +124,7 @@ async function fetchNewsForTopicWithTimeWindow(
         article.title !== 'No title' &&
         article.url &&
         article.description !== 'No description' &&
-        article.description.length > 50 // Filter out very short descriptions
+        article.description.length > 80 // Filter out very short descriptions
     );
 
   // Deduplicate articles by title similarity (remove near-duplicates)
@@ -252,14 +258,20 @@ async function fetchStaleCache(topic: string): Promise<NewsArticle[]> {
 }
 
 // Multi-source news fetcher with fallback strategy
-export async function fetchNewsForTopic(topic: string): Promise<NewsArticle[]> {
+export async function fetchNewsForTopic(
+  topic: string,
+  options?: { useCache?: boolean; writeCache?: boolean }
+): Promise<NewsArticle[]> {
   const MIN_ARTICLES_NEEDED = 3;
+  const { useCache = true, writeCache = true } = options ?? {};
 
   try {
     // Strategy 0: Check cache first (must be from today's date)
-    const cachedArticles = await checkArticleCache(topic);
-    if (cachedArticles && cachedArticles.length >= MIN_ARTICLES_NEEDED) {
-      return cachedArticles.slice(0, 10);
+    if (useCache) {
+      const cachedArticles = await checkArticleCache(topic);
+      if (cachedArticles && cachedArticles.length >= MIN_ARTICLES_NEEDED) {
+        return cachedArticles.slice(0, 10);
+      }
     }
 
     // Strategy 1: Try Currents API first (primary source)
@@ -277,7 +289,9 @@ export async function fetchNewsForTopic(topic: string): Promise<NewsArticle[]> {
         const topArticles = selectTopArticles(scoredArticles, 10);
 
         // Store scored articles in cache for future use
-        await storeArticleCache(topic, topArticles, 'currents', fetchDuration);
+        if (writeCache) {
+          await storeArticleCache(topic, topArticles, 'currents', fetchDuration);
+        }
         console.log(`[Multi-Source] Selected top ${topArticles.length} articles after scoring`);
         return topArticles;
       }
@@ -302,7 +316,9 @@ export async function fetchNewsForTopic(topic: string): Promise<NewsArticle[]> {
         const topArticles = selectTopArticles(scoredArticles, 10);
 
         // Store scored articles in cache for future use
-        await storeArticleCache(topic, topArticles, 'newsapi', fetchDuration);
+        if (writeCache) {
+          await storeArticleCache(topic, topArticles, 'newsapi', fetchDuration);
+        }
         console.log(`[Multi-Source] Selected top ${topArticles.length} articles after scoring`);
         return topArticles;
       }
@@ -322,7 +338,9 @@ export async function fetchNewsForTopic(topic: string): Promise<NewsArticle[]> {
           const topArticles48h = selectTopArticles(scoredArticles48h, 10);
 
           // Store scored articles in cache for future use
-          await storeArticleCache(topic, topArticles48h, 'newsapi-48h', fetchDuration48h);
+          if (writeCache) {
+            await storeArticleCache(topic, topArticles48h, 'newsapi-48h', fetchDuration48h);
+          }
           console.log(`[Multi-Source] Selected top ${topArticles48h.length} articles after scoring`);
           return topArticles48h;
         }
@@ -334,12 +352,14 @@ export async function fetchNewsForTopic(topic: string): Promise<NewsArticle[]> {
     }
 
     // Strategy 3: Last resort - use stale cache
-    console.log(`[Multi-Source] All sources failed, trying stale cache for "${topic}"...`);
-    const staleArticles = await fetchStaleCache(topic);
+    if (useCache) {
+      console.log(`[Multi-Source] All sources failed, trying stale cache for "${topic}"...`);
+      const staleArticles = await fetchStaleCache(topic);
 
-    if (staleArticles.length > 0) {
-      console.log(`[Multi-Source] ✅ Using stale cache: ${staleArticles.length} articles for "${topic}"`);
-      return staleArticles.slice(0, 10);
+      if (staleArticles.length > 0) {
+        console.log(`[Multi-Source] ✅ Using stale cache: ${staleArticles.length} articles for "${topic}"`);
+        return staleArticles.slice(0, 10);
+      }
     }
 
     // If all strategies fail, return empty array

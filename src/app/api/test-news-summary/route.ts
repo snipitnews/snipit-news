@@ -7,6 +7,7 @@ import { summarizeNews } from '@/lib/openai';
  * 
  * Usage with curl:
  *   curl "http://localhost:3000/api/test-news-summary?topic=nba"
+ *   curl "http://localhost:3000/api/test-news-summary?topic=nba&nocache=1"
  * 
  * Returns JSON with just the summary bullets for the specified topic
  */
@@ -14,6 +15,8 @@ export async function GET(request: NextRequest) {
   try {
     // Get topic from query parameter
     const topic = request.nextUrl.searchParams.get('topic');
+    const noCacheParam = request.nextUrl.searchParams.get('nocache');
+    const noCache = noCacheParam === '1' || noCacheParam === 'true';
 
     if (!topic) {
       return NextResponse.json(
@@ -30,7 +33,10 @@ export async function GET(request: NextRequest) {
 
     // Fetch news articles for the topic
     console.log(`[Test News Summary] Fetching news articles...`);
-    const articles = await fetchNewsForTopic(topic);
+    const articles = await fetchNewsForTopic(topic, {
+      useCache: !noCache,
+      writeCache: !noCache,
+    });
 
     if (articles.length === 0) {
       return NextResponse.json(

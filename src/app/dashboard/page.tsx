@@ -28,6 +28,11 @@ interface EmailSettings {
   paused: boolean;
 }
 
+interface MainTopic {
+  name: string;
+  subtopics: string[];
+}
+
 interface EmailArchive {
   id: string;
   sent_at: string;
@@ -47,6 +52,7 @@ export default function Dashboard() {
   );
   const [isPaused, setIsPaused] = useState(false);
   const [archive, setArchive] = useState<EmailArchive[]>([]);
+  const [availableTopics, setAvailableTopics] = useState<MainTopic[]>([]);
   const [activeTab, setActiveTab] = useState<'topics' | 'settings' | 'archive'>(
     'topics'
   );
@@ -100,16 +106,22 @@ export default function Dashboard() {
         setTopics(topicsData);
       }
 
-      // Load email settings
-      const settingsResponse = await fetch('/api/email-settings', {
-        credentials: 'include',
-      });
+      // Load email settings and available topics in parallel
+      const [settingsResponse, availableResponse] = await Promise.all([
+        fetch('/api/email-settings', { credentials: 'include' }),
+        fetch('/api/topics/all').then((res) => res.json()),
+      ]);
+
       if (settingsResponse.ok) {
         const { settings } = await settingsResponse.json();
         if (settings) {
           setEmailSettings(settings);
           setIsPaused(settings.paused || false);
         }
+      }
+
+      if (availableResponse.topics) {
+        setAvailableTopics(availableResponse.topics);
       }
     } catch (error) {
       console.error('Error loading user data:', error);
@@ -497,6 +509,7 @@ export default function Dashboard() {
               onRemoveTopic={removeTopic}
               maxTopics={maxTopics}
               canAddMore={canAddMore}
+              availableTopics={availableTopics}
               isAddingTopic={isAddingTopic}
               compact={true}
             />

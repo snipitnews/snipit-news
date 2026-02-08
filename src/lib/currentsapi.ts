@@ -1,6 +1,6 @@
 import { NewsArticle } from './openai';
 import { getSourcesForTopic } from './newsSources';
-import { cleanArticleContent } from './utils/articleCleaning';
+import { cleanArticleContent, isGarbageDescription } from './utils/articleCleaning';
 
 const CURRENTS_API_KEY = process.env.CURRENTS_API_KEY;
 const CURRENTS_API_BASE_URL = 'https://api.currentsapi.services/v1';
@@ -133,9 +133,12 @@ async function fetchNewsFromCurrents(
       // Clean up description using shared utility
       const cleanDescription = cleanArticleContent(article.description || '');
 
+      // Reject garbage descriptions so the filter below drops the article
+      const description = isGarbageDescription(cleanDescription) ? 'No description' : cleanDescription;
+
       return {
         title: article.title || 'No title',
-        description: cleanDescription || 'No description',
+        description: description || 'No description',
         url: article.url || '',
         publishedAt: article.published || new Date().toISOString(),
         source: {
@@ -148,7 +151,7 @@ async function fetchNewsFromCurrents(
         article.title !== 'No title' &&
         article.url &&
         article.description !== 'No description' &&
-        article.description.length > 50 // Filter out very short descriptions
+        article.description.length > 80 // Filter out very short descriptions
     );
 
   // Deduplicate articles by title similarity

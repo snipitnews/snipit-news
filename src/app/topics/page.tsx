@@ -4,8 +4,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { X, Check, ArrowRight, Crown, ChevronDown, ChevronUp, Search } from 'lucide-react';
-import { TOPICS, searchTopics } from '@/lib/topics';
 import Navigation from '@/components/Navigation';
+
+interface MainTopic {
+  name: string;
+  subtopics: string[];
+}
 
 interface User {
   id: string;
@@ -23,6 +27,7 @@ export default function TopicsPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
+  const [availableTopics, setAvailableTopics] = useState<MainTopic[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
@@ -39,32 +44,37 @@ export default function TopicsPage() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      
+
       if (!session) {
         router.push('/');
         return;
       }
 
-      // Load user data
-      const { data: userData } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
+      // Load user data, user topics, and available topics in parallel
+      const [userResult, topicsResult, availableResult] = await Promise.all([
+        supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .single(),
+        supabase
+          .from('user_topics')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: true }),
+        fetch('/api/topics/all').then((res) => res.json()),
+      ]);
 
-      if (userData) {
-        setUser(userData);
+      if (userResult.data) {
+        setUser(userResult.data);
       }
 
-      // Load existing topics
-      const { data: topicsData } = await supabase
-        .from('user_topics')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: true });
+      if (topicsResult.data) {
+        setTopics(topicsResult.data);
+      }
 
-      if (topicsData) {
-        setTopics(topicsData);
+      if (availableResult.topics) {
+        setAvailableTopics(availableResult.topics);
       }
     } catch (error) {
       console.error('Error loading user data:', error);
@@ -82,7 +92,7 @@ export default function TopicsPage() {
     if (!user) return;
 
     const maxTopics = user.subscription_tier === 'paid' ? 12 : 3;
-    
+
     if (topics.length >= maxTopics) {
       setError(
         `Topic limit reached. ${user.subscription_tier === 'paid' ? 'Pro' : 'Free'} tier allows ${maxTopics} topics.`
@@ -97,7 +107,7 @@ export default function TopicsPage() {
 
     setIsAddingTopic(subtopic);
     setError('');
-    
+
     try {
       const { data, error: insertError } = await supabase
         .from('user_topics')
@@ -196,24 +206,26 @@ export default function TopicsPage() {
   // Filter topics based on search
   const filteredTopics = useMemo(() => {
     if (!searchQuery.trim()) {
-      return TOPICS;
+      return availableTopics;
     }
 
-    const searchResults = searchTopics(searchQuery);
-    const mainTopicsMap = new Map<string, string[]>();
+    const lowerQuery = searchQuery.toLowerCase();
 
-    searchResults.forEach(({ mainTopic, subtopic }) => {
-      if (!mainTopicsMap.has(mainTopic)) {
-        mainTopicsMap.set(mainTopic, []);
-      }
-      mainTopicsMap.get(mainTopic)!.push(subtopic);
-    });
-
-    return TOPICS.filter((topic) => mainTopicsMap.has(topic.name)).map((topic) => ({
-      ...topic,
-      subtopics: mainTopicsMap.get(topic.name) || topic.subtopics,
-    }));
-  }, [searchQuery]);
+    return availableTopics
+      .map((topic) => {
+        if (topic.name.toLowerCase().includes(lowerQuery)) {
+          return topic;
+        }
+        const matchingSubtopics = topic.subtopics.filter((s) =>
+          s.toLowerCase().includes(lowerQuery)
+        );
+        if (matchingSubtopics.length > 0) {
+          return { ...topic, subtopics: matchingSubtopics };
+        }
+        return null;
+      })
+      .filter((t): t is MainTopic => t !== null);
+  }, [searchQuery, availableTopics]);
 
   if (isLoading) {
     return (
