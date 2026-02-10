@@ -1,16 +1,16 @@
 {
   "crons": [
     {
-      "path": "/api/cron/warm-cache",
-      "schedule": "0 11 * * *"
+      "path": "/api/cron/generate-drafts",
+      "schedule": "0 1 * * *"
     },
     {
       "path": "/api/cron/send-digests",
-      "schedule": "30 11 * * *"
+      "schedule": "45 11 * * *"
     }
   ],
   "functions": {
-    "src/app/api/cron/warm-cache/route.ts": {
+    "src/app/api/cron/generate-drafts/route.ts": {
       "maxDuration": 60
     },
     "src/app/api/cron/send-digests/route.ts": {

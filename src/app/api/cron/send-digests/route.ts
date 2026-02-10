@@ -115,7 +115,9 @@ interface PrepareResult {
 // Prepare a single user's email content (generate summaries) without sending
 async function prepareUserEmail(
   user: UserWithRelations,
-  newsData: Record<string, NewsArticle[]>
+  newsData: Record<string, NewsArticle[]>,
+  draftMap?: Map<string, unknown[]>,
+  fallbackBehavior?: string
 ): Promise<PrepareResult> {
   const result: PrepareResult = {
     prepared: false,
@@ -150,7 +152,28 @@ async function prepareUserEmail(
     const topicsWithArticles = topics.filter(topic => (newsData[topic] || []).length > 0);
 
     // Process all topics in parallel with timeout protection
+    // Check for approved drafts first if draftMap is available
     const summaryPromises = topicsWithArticles.map(async (topic) => {
+      const draftKey = `${topic}__${isPaid}`;
+      const draftContent = draftMap?.get(draftKey);
+
+      if (draftContent) {
+        // Use approved draft content directly
+        console.log(`[Cron] Using approved draft for "${topic}"`);
+        return {
+          topic,
+          summary: { topic, summaries: draftContent as Awaited<ReturnType<typeof summarizeNews>>['summaries'] },
+          error: null,
+        };
+      }
+
+      // No approved draft — check fallback behavior
+      if (draftMap && fallbackBehavior === 'exclude') {
+        console.log(`[Cron] Skipping unapproved topic "${topic}" (fallback=exclude)`);
+        return { topic, summary: null, error: null };
+      }
+
+      // Generate fresh summary (current behavior / fallback=send_anyway)
       try {
         const summary = await withTimeout(
           summarizeNews(topic, newsData[topic], isPaid),
@@ -375,6 +398,29 @@ export async function GET(request: NextRequest) {
       Object.assign(newsData, fetchedNews);
     }
 
+    // Fetch approved drafts for today (EST)
+    const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const today = `${nowEST.getFullYear()}-${String(nowEST.getMonth() + 1).padStart(2, '0')}-${String(nowEST.getDate()).padStart(2, '0')}`;
+    const { data: approvedDrafts } = await supabase
+      .from('draft_summaries')
+      .select('topic, is_paid, edited_summaries')
+      .eq('send_date', today)
+      .eq('status', 'approved');
+
+    const draftMap = new Map<string, unknown[]>();
+    for (const draft of (approvedDrafts || []) as Array<{ topic: string; is_paid: boolean; edited_summaries: unknown[] }>) {
+      draftMap.set(`${draft.topic}__${draft.is_paid}`, draft.edited_summaries);
+    }
+
+    const { data: fallbackSetting } = await supabase
+      .from('draft_settings')
+      .select('value')
+      .eq('key', 'unapproved_fallback')
+      .single();
+    const fallbackBehavior = (fallbackSetting as { value: string } | null)?.value || 'exclude';
+
+    console.log(`[Cron] Found ${draftMap.size} approved drafts for ${today}, fallback=${fallbackBehavior}`);
+
     const results: Results = {
       processed: 0,
       successful: 0,
@@ -392,7 +438,7 @@ export async function GET(request: NextRequest) {
     // Process in batches to control OpenAI concurrency
     for (let i = 0; i < activeUsers.length; i += SUMMARIZATION_CONCURRENCY) {
       const batch = activeUsers.slice(i, i + SUMMARIZATION_CONCURRENCY);
-      const batchPromises = batch.map(user => prepareUserEmail(user, newsData));
+      const batchPromises = batch.map(user => prepareUserEmail(user, newsData, draftMap, fallbackBehavior));
       const batchResults = await Promise.allSettled(batchPromises);
 
       for (const settledResult of batchResults) {

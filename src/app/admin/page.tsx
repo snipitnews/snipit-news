@@ -527,9 +527,18 @@ export default function AdminPortal() {
     <div className="min-h-screen bg-[#1a1a1a]">
       <Navigation />
       <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="mb-8">
-          <h1 className="text-2xl font-medium text-white">Admin Portal</h1>
-          <p className="text-sm text-gray-400 mt-1">Manage users and topics</p>
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-medium text-white">Admin Portal</h1>
+            <p className="text-sm text-gray-400 mt-1">Manage users and topics</p>
+          </div>
+          <button
+            onClick={() => router.push('/admin/drafts')}
+            className="px-4 py-2 bg-[#FFA500] text-[#1a1a1a] text-sm font-medium hover:bg-[#FFD700] transition-colors rounded-lg flex items-center gap-2"
+          >
+            <Edit2 className="w-4 h-4" />
+            Draft Review
+          </button>
         </div>
 
         {/* Tabs */}
