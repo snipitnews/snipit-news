@@ -1,5 +1,4 @@
 import { NewsArticle } from './openai';
-import { getSourcesForTopic } from './newsSources';
 import { cleanArticleContent, isGarbageDescription } from './utils/articleCleaning';
 
 const CURRENTS_API_KEY = process.env.CURRENTS_API_KEY;
@@ -64,7 +63,7 @@ async function fetchNewsFromCurrents(
       `keywords=${encodeURIComponent(normalizedTopic)}&` +
       `start_date=${fromDateStr}&` +
       `language=en&` +
-      `page_size=20&` +
+      `page_size=30&` +
       `apiKey=${CURRENTS_API_KEY}`
   );
 
@@ -86,9 +85,6 @@ async function fetchNewsFromCurrents(
     return [];
   }
 
-  // Get topic-specific sources for prioritization (not restriction)
-  const prioritySources = getSourcesForTopic(topic);
-
   interface CurrentsArticle {
     url?: string;
     title?: string;
@@ -98,34 +94,10 @@ async function fetchNewsFromCurrents(
     domain_url?: string;
   }
 
-  // Prioritize articles from preferred sources, but include all articles
-  const priorityArticles: CurrentsArticle[] = [];
-  const otherArticles: CurrentsArticle[] = [];
+  // All articles kept in natural order — preferred source boosting handled in articleScoring.ts
+  const articlesToUse = (data.news as CurrentsArticle[]).filter((a) => a.url);
 
-  for (const article of data.news as CurrentsArticle[]) {
-    if (!article.url) continue;
-
-    try {
-      const sourceUrl = new URL(article.url).hostname;
-      const isFromPrioritySource = prioritySources.some((source) =>
-        sourceUrl.includes(source)
-      );
-
-      if (isFromPrioritySource) {
-        priorityArticles.push(article);
-      } else {
-        otherArticles.push(article);
-      }
-    } catch {
-      // If URL parsing fails, add to other articles
-      otherArticles.push(article);
-    }
-  }
-
-  // Combine: priority sources first, then other sources
-  const articlesToUse = [...priorityArticles, ...otherArticles];
-
-  console.log(`[CurrentsAPI] Using ${articlesToUse.length} articles (${priorityArticles.length} from priority sources, ${otherArticles.length} from other sources)`);
+  console.log(`[CurrentsAPI] Using ${articlesToUse.length} articles`);
 
   // Map Currents API format to our NewsArticle format
   const mappedArticles = articlesToUse
@@ -151,7 +123,7 @@ async function fetchNewsFromCurrents(
         article.title !== 'No title' &&
         article.url &&
         article.description !== 'No description' &&
-        article.description.length > 80 // Filter out very short descriptions
+        article.description.length > 40 // Relaxed filter to allow credible short briefs
     );
 
   // Deduplicate articles by title similarity
@@ -219,8 +191,8 @@ export async function fetchNewsForTopicFromCurrents(
       console.log(`[CurrentsAPI] Found ${articles.length} articles from last 48 hours`);
     }
 
-    // Return top 10 most relevant articles
-    return articles.slice(0, 10);
+    // Return all articles for merging in newsapi.ts
+    return articles;
   } catch (error) {
     console.error(`[CurrentsAPI] Error fetching news for topic "${topic}":`, error);
     throw error; // Re-throw to allow fallback to other sources
