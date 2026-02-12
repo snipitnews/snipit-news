@@ -1451,57 +1451,9 @@ export async function summarizeNews(
   const isPersonalDevelopmentTopic = PERSONAL_DEVELOPMENT_TOPICS.some((personalDevTopic) =>
     topicLower.includes(personalDevTopic.toLowerCase())
   );
-  // Meaningful short keywords that should NOT be filtered out
-  const MEANINGFUL_SHORT_WORDS = new Set([
-    'us', 'uk', 'eu', 'ai', 'ev', 'pc', 'nba', 'nfl', 'mlb', 'nhl',
-    'ufc', 'f1', 'gp', 'un', 'imf', 'who', 'ipo', 'ceo', 'cto',
-  ]);
-
-  const topicKeywords = topicLower.split(/\s+/).filter(k => k.length > 2 || MEANINGFUL_SHORT_WORDS.has(k));
-  const basicRelevanceFiltered = articles.filter((article) => {
-    const searchText = `${article.title} ${article.description}`.toLowerCase();
-    // For single-word topics, require exact word match (not substring)
-    if (topicKeywords.length === 1) {
-      // Use word boundary matching for single words to avoid false positives
-      const word = topicKeywords[0];
-      const wordBoundaryRegex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-      return wordBoundaryRegex.test(searchText);
-    } else {
-      // For multi-word topics with 3+ keywords, require at least 2 matches to reduce false positives
-      const minMatches = topicKeywords.length >= 3 ? 2 : 1;
-      const matchCount = topicKeywords.filter(keyword => {
-        const wordBoundaryRegex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-        return wordBoundaryRegex.test(searchText);
-      }).length;
-      return matchCount >= minMatches;
-    }
-  });
-
-  // Use basic keyword filtering - OpenAI relevance filtering removed as redundant
-  // articleScoring.ts already scores articles by relevance
-  if (basicRelevanceFiltered.length === 0) {
-    console.log(`[OpenAI] No relevant articles found for topic: ${topic}`);
-    return {
-      topic,
-      summaries: [],
-    };
-  }
-
-  console.log(`[OpenAI] Using ${basicRelevanceFiltered.length} articles after keyword filtering for "${topic}"`);
-
-  // Article selection: Take top articles, prioritizing those with better descriptions (more context)
-  // For free tier: take top 7 articles to ensure we can get 3 good summaries
-  // For paid tier: take top 7 articles to ensure we can get 4-5 good summaries
-  const articlesToTake = isPaid ? 7 : 7;
-  
-  // Sort articles by description quality (longer = more context) before selecting
-  const sortedArticles = [...basicRelevanceFiltered].sort((a, b) => {
-    const aLength = a.description?.length || 0;
-    const bLength = b.description?.length || 0;
-    return bLength - aLength; // Longer descriptions first
-  });
-  
-  const articlesToSummarize = sortedArticles.slice(0, articlesToTake);
+  // Articles arrive pre-filtered by deterministic scoring + editorial ranking upstream
+  // Take top 7 directly in editorial rank order
+  const articlesToSummarize = articles.slice(0, 7);
 
   if (articlesToSummarize.length === 0) {
     return {

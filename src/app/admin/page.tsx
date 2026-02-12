@@ -51,6 +51,7 @@ export default function AdminPortal() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [error, setError] = useState('');
+  const [showUniqueTopics, setShowUniqueTopics] = useState(false);
   
   // Topic management state
   const [newTopicName, setNewTopicName] = useState('');
@@ -522,6 +523,10 @@ export default function AdminPortal() {
   const freeUsers = users.filter((u) => u.tier === 'free').length;
   const paidUsers = users.filter((u) => u.tier === 'paid').length;
   const totalTopics = users.reduce((sum, u) => sum + u.topicCount, 0);
+  const uniqueTopicNames = Array.from(
+    new Set(users.flatMap((u) => u.topics.map((t) => t.topic_name)))
+  ).sort();
+  const uniqueTopicCount = uniqueTopicNames.length;
 
   return (
     <div className="min-h-screen bg-[#1a1a1a]">
@@ -580,7 +585,7 @@ export default function AdminPortal() {
         {activeTab === 'users' && (
           <>
             {/* Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
               <div className="bg-[#2a2a2a] border border-[#FFA500]/20 p-6 rounded-lg">
                 <p className="text-sm text-gray-400 mb-1">Total Users</p>
                 <p className="text-3xl font-medium text-white">{totalUsers}</p>
@@ -597,7 +602,38 @@ export default function AdminPortal() {
                 <p className="text-sm text-gray-400 mb-1">Total Topics</p>
                 <p className="text-3xl font-medium text-white">{totalTopics}</p>
               </div>
+              <div
+                className="bg-[#2a2a2a] border border-[#FFA500]/20 p-6 rounded-lg cursor-pointer hover:border-[#FFA500]/40 transition-colors"
+                onClick={() => setShowUniqueTopics(!showUniqueTopics)}
+              >
+                <p className="text-sm text-gray-400 mb-1">Unique Topics {showUniqueTopics ? '▾' : '▸'}</p>
+                <p className="text-3xl font-medium text-white">{uniqueTopicCount}</p>
+              </div>
             </div>
+
+            {showUniqueTopics && (
+              <div className="bg-[#2a2a2a] border border-[#FFA500]/20 rounded-lg mb-8 p-6">
+                <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-4">
+                  Unique Topics Selected by Users ({uniqueTopicCount})
+                </h3>
+                <div className="flex flex-wrap gap-2">
+                  {uniqueTopicNames.map((name) => {
+                    const subscriberCount = users.filter((u) =>
+                      u.topics.some((t) => t.topic_name === name)
+                    ).length;
+                    return (
+                      <span
+                        key={name}
+                        className="inline-flex items-center px-3 py-1.5 rounded-full text-sm bg-[#333333] border border-[#FFA500]/20 text-white"
+                      >
+                        {name}
+                        <span className="ml-2 text-xs text-gray-400">{subscriberCount}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Users Table */}
             <div className="bg-[#2a2a2a] border border-[#FFA500]/20 rounded-lg overflow-hidden">
