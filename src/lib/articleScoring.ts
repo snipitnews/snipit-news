@@ -1,4 +1,5 @@
 import { NewsArticle } from './openai';
+import { getSourcesForTopic } from './newsSources';
 
 // Source quality tiers (based on reputation and reliability)
 const SOURCE_QUALITY_TIERS = {
@@ -120,7 +121,7 @@ function calculateRecencyScore(article: NewsArticle): number {
 
     // Exponential decay: articles lose 50% value every 12 hours
     // Score = e^(-age / halfLife)
-    const halfLife = 12; // hours
+    const halfLife = 24; // hours
     const score = Math.exp(-ageInHours / halfLife);
 
     return Math.max(0, Math.min(1, score));
@@ -146,40 +147,24 @@ function calculateSourceQuality(article: NewsArticle): number {
   return SOURCE_QUALITY_TIERS.default.score;
 }
 
-// Calculate uniqueness score (penalize similar articles)
-function calculateUniquenessScore(
-  article: NewsArticle,
-  otherArticles: NewsArticle[]
-): number {
-  const titleLower = article.title.toLowerCase();
-  const titleWords = new Set(titleLower.split(/\s+/).filter((word) => word.length > 3));
+// Diversity score placeholder (for future clustering)
+function calculateDiversityScore(): number {
+  return 1.0;
+}
 
-  if (titleWords.size === 0) {
-    return 0.5;
+// Calculate preferred source boost for topic-specific sources
+function calculatePreferredSourceBoost(article: NewsArticle, topic: string): number {
+  const preferredSources = getSourcesForTopic(topic);
+  const url = article.url.toLowerCase();
+  const sourceName = article.source.name.toLowerCase();
+
+  for (const source of preferredSources) {
+    if (url.includes(source) || sourceName.includes(source)) {
+      return 0.15;
+    }
   }
 
-  let maxSimilarity = 0;
-
-  for (const other of otherArticles) {
-    if (other.url === article.url) continue; // Skip self
-
-    const otherTitleLower = other.title.toLowerCase();
-    const otherTitleWords = new Set(
-      otherTitleLower.split(/\s+/).filter((word) => word.length > 3)
-    );
-
-    // Calculate Jaccard similarity
-    const intersection = new Set(
-      [...titleWords].filter((word) => otherTitleWords.has(word))
-    );
-    const union = new Set([...titleWords, ...otherTitleWords]);
-
-    const similarity = intersection.size / union.size;
-    maxSimilarity = Math.max(maxSimilarity, similarity);
-  }
-
-  // Uniqueness = 1 - similarity (more unique = higher score)
-  return 1 - maxSimilarity;
+  return 0.0;
 }
 
 // Combined scoring algorithm
@@ -187,7 +172,8 @@ export interface ScoredArticle extends NewsArticle {
   relevanceScore: number;
   recencyScore: number;
   sourceQualityScore: number;
-  uniquenessScore: number;
+  diversityScore: number;
+  preferredSourceBoost: number;
   totalScore: number;
 }
 
@@ -200,41 +186,26 @@ export function scoreArticles(
     const relevanceScore = calculateKeywordRelevance(article, topic);
     const recencyScore = calculateRecencyScore(article);
     const sourceQualityScore = calculateSourceQuality(article);
+    const diversityScore = calculateDiversityScore();
+    const preferredSourceBoost = calculatePreferredSourceBoost(article, topic);
 
-    // Initial uniqueness score (will be updated)
-    const uniquenessScore = 1.0;
-
-    // Weighted total score
-    // Relevance: 40%, Recency: 30%, Source Quality: 20%, Uniqueness: 10%
+    // Weighted total score: Relevance 45%, Recency 30%, Source Quality 25%
     const totalScore =
-      relevanceScore * 0.4 +
-      recencyScore * 0.3 +
-      sourceQualityScore * 0.2 +
-      uniquenessScore * 0.1;
+      relevanceScore * 0.45 +
+      recencyScore * 0.30 +
+      sourceQualityScore * 0.25 +
+      preferredSourceBoost;
 
     return {
       ...article,
       relevanceScore,
       recencyScore,
       sourceQualityScore,
-      uniquenessScore,
+      diversityScore,
+      preferredSourceBoost,
       totalScore,
     };
   });
-
-  // Update uniqueness scores (comparing against all other articles)
-  for (let i = 0; i < scoredArticles.length; i++) {
-    const article = scoredArticles[i];
-    const uniquenessScore = calculateUniquenessScore(article, scoredArticles);
-
-    // Recalculate total score with updated uniqueness
-    article.uniquenessScore = uniquenessScore;
-    article.totalScore =
-      article.relevanceScore * 0.4 +
-      article.recencyScore * 0.3 +
-      article.sourceQualityScore * 0.2 +
-      article.uniquenessScore * 0.1;
-  }
 
   // Sort by total score (highest first)
   return scoredArticles.sort((a, b) => b.totalScore - a.totalScore);
@@ -243,8 +214,8 @@ export function scoreArticles(
 // Filter and select top articles based on scores
 export function selectTopArticles(
   scoredArticles: ScoredArticle[],
-  count: number = 10
-): NewsArticle[] {
+  count: number = 25
+): ScoredArticle[] {
   // Ensure we have at least 3 highly relevant articles (relevance > 0.3)
   const highlyRelevant = scoredArticles.filter((a) => a.relevanceScore > 0.3);
   const lessRelevant = scoredArticles.filter((a) => a.relevanceScore <= 0.3);
@@ -255,8 +226,5 @@ export function selectTopArticles(
   const remaining = selectedCount - fromHighlyRelevant.length;
   const fromLessRelevant = lessRelevant.slice(0, remaining);
 
-  const selected = [...fromHighlyRelevant, ...fromLessRelevant];
-
-  // Return as NewsArticle (without scores)
-  return selected.map(({ relevanceScore, recencyScore, sourceQualityScore, uniquenessScore, totalScore, ...article }) => article);
+  return [...fromHighlyRelevant, ...fromLessRelevant];
 }

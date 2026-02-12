@@ -1,12 +1,14 @@
 import { NewsArticle } from './openai';
-import { getSourcesForTopic } from './newsSources';
 import { fetchNewsForTopicFromCurrents, getRemainingRequests } from './currentsapi';
 import { getSupabaseAdmin } from './supabase';
-import { scoreArticles, selectTopArticles } from './articleScoring';
+import { scoreArticles, selectTopArticles, ScoredArticle } from './articleScoring';
+import { rankArticlesEditorially } from './editorialRanking';
 import { cleanArticleContent, isGarbageDescription } from './utils/articleCleaning';
 
 const NEWS_API_KEY = process.env.NEWS_API_KEY;
 const NEWS_API_BASE_URL = 'https://newsapi.org/v2';
+
+const MIN_REQUIRED = 25;
 
 async function fetchNewsForTopicWithTimeWindow(
   topic: string,
@@ -21,9 +23,6 @@ async function fetchNewsForTopicWithTimeWindow(
   fromDate.setDate(fromDate.getDate() - daysBack);
   const fromDateStr = fromDate.toISOString().split('T')[0];
 
-  // Get topic-specific sources for prioritization (not restriction)
-  const prioritySources = getSourcesForTopic(topic);
-
   // Normalize topic - remove periods to avoid API encoding issues (e.g., "U.S." -> "US")
   const normalizedTopic = topic.replace(/\./g, '');
 
@@ -33,7 +32,7 @@ async function fetchNewsForTopicWithTimeWindow(
       `from=${fromDateStr}&` +
       `sortBy=publishedAt&` +
       `language=en&` +
-      `pageSize=20&` +
+      `pageSize=30&` +
       `apiKey=${NEWS_API_KEY}`
   );
 
@@ -66,34 +65,10 @@ async function fetchNewsForTopicWithTimeWindow(
     };
   }
 
-  // Prioritize articles from preferred sources, but include all articles
-  const priorityArticles: NewsAPIArticle[] = [];
-  const otherArticles: NewsAPIArticle[] = [];
+  // All articles kept in natural order — preferred source boosting handled in articleScoring.ts
+  const articlesToUse = (data.articles as NewsAPIArticle[]).filter((a) => a.url);
 
-  for (const article of data.articles as NewsAPIArticle[]) {
-    if (!article.url) continue;
-
-    try {
-      const sourceUrl = new URL(article.url).hostname;
-      const isFromPrioritySource = prioritySources.some((source) =>
-        sourceUrl.includes(source)
-      );
-
-      if (isFromPrioritySource) {
-        priorityArticles.push(article);
-      } else {
-        otherArticles.push(article);
-      }
-    } catch {
-      // If URL parsing fails, add to other articles
-      otherArticles.push(article);
-    }
-  }
-
-  // Combine: priority sources first, then other sources
-  const articlesToUse = [...priorityArticles, ...otherArticles];
-
-  console.log(`[NewsAPI] Using ${articlesToUse.length} articles (${priorityArticles.length} from priority sources, ${otherArticles.length} from other sources)`);
+  console.log(`[NewsAPI] Using ${articlesToUse.length} articles`);
 
   // Map and filter articles - prioritize content over description for better context
   const mappedArticles = articlesToUse
@@ -124,32 +99,32 @@ async function fetchNewsForTopicWithTimeWindow(
         article.title !== 'No title' &&
         article.url &&
         article.description !== 'No description' &&
-        article.description.length > 80 // Filter out very short descriptions
+        article.description.length > 40 // Relaxed filter to allow credible short briefs
     );
 
   // Deduplicate articles by title similarity (remove near-duplicates)
   const deduplicatedArticles: NewsArticle[] = [];
   const seenTitles = new Set<string>();
-  
+
   for (const article of mappedArticles) {
     // Normalize title for comparison (lowercase, remove special chars)
     const normalizedTitle = article.title
       .toLowerCase()
       .replace(/[^\w\s]/g, '')
       .trim();
-    
+
     // Check if we've seen a similar title (exact match or very similar)
     let isDuplicate = false;
     for (const seenTitle of seenTitles) {
       // Check for exact match or high similarity
-      if (normalizedTitle === seenTitle || 
+      if (normalizedTitle === seenTitle ||
           (normalizedTitle.length > 20 && seenTitle.includes(normalizedTitle.substring(0, 20))) ||
           (seenTitle.length > 20 && normalizedTitle.includes(seenTitle.substring(0, 20)))) {
         isDuplicate = true;
         break;
       }
     }
-    
+
     if (!isDuplicate) {
       seenTitles.add(normalizedTitle);
       deduplicatedArticles.push(article);
@@ -168,6 +143,51 @@ async function fetchNewsForTopicWithTimeWindow(
   });
 
   return sortedArticles;
+}
+
+// Cross-source deduplication: title prefix + URL hostname+path match
+function deduplicateAcrossSources(articles: NewsArticle[]): NewsArticle[] {
+  const seen = new Set<string>();
+  const result: NewsArticle[] = [];
+
+  for (const article of articles) {
+    // Dual-key dedup: normalized title prefix + URL hostname+path
+    const titleKey = article.title
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .trim()
+      .substring(0, 20);
+
+    let urlKey = '';
+    try {
+      const parsed = new URL(article.url);
+      urlKey = parsed.hostname + parsed.pathname;
+    } catch {
+      urlKey = article.url;
+    }
+
+    const dedupKey = `${titleKey}||${urlKey}`;
+
+    if (!seen.has(dedupKey)) {
+      // Also check for title-only matches (different URLs but same story)
+      let titleDuplicate = false;
+      for (const seenKey of seen) {
+        const seenTitle = seenKey.split('||')[0];
+        if (titleKey.length > 10 && seenTitle === titleKey) {
+          titleDuplicate = true;
+          break;
+        }
+      }
+
+      if (!titleDuplicate) {
+        seen.add(dedupKey);
+        result.push(article);
+      }
+    }
+  }
+
+  console.log(`[Dedup] Cross-source dedup: ${articles.length} -> ${result.length} articles`);
+  return result;
 }
 
 // Check if we have fresh cache for a topic (from today's date)
@@ -191,7 +211,7 @@ async function checkArticleCache(topic: string): Promise<NewsArticle[] | null> {
 
     const cacheData = data as { articles: NewsArticle[]; created_at: string; source: string };
     const articles = cacheData.articles;
-    console.log(`[Cache] ✅ Found today's cache for "${topic}" (${articles.length} articles, source: ${cacheData.source})`);
+    console.log(`[Cache] Found today's cache for "${topic}" (${articles.length} articles, source: ${cacheData.source})`);
     return articles;
   } catch (error) {
     console.error(`[Cache] Error checking cache for "${topic}":`, error);
@@ -223,7 +243,7 @@ async function storeArticleCache(
         onConflict: 'topic,date,source'
       });
 
-    console.log(`[Cache] ✅ Stored ${articles.length} articles for "${topic}" (source: ${source})`);
+    console.log(`[Cache] Stored ${articles.length} articles for "${topic}" (source: ${source})`);
   } catch (error) {
     console.error(`[Cache] Error storing cache for "${topic}":`, error);
     // Don't throw - caching is optional
@@ -249,7 +269,7 @@ async function fetchStaleCache(topic: string): Promise<NewsArticle[]> {
     const cacheData = data as { articles: NewsArticle[]; created_at: string; source: string };
     const articles = cacheData.articles;
     const age = Math.round((Date.now() - new Date(cacheData.created_at).getTime()) / (1000 * 60 * 60));
-    console.log(`[Cache] ⚠️ Using stale cache for "${topic}" (${articles.length} articles, ${age}h old, source: ${cacheData.source})`);
+    console.log(`[Cache] Using stale cache for "${topic}" (${articles.length} articles, ${age}h old, source: ${cacheData.source})`);
     return articles;
   } catch (error) {
     console.error(`[Cache] Error fetching stale cache for "${topic}":`, error);
@@ -257,7 +277,7 @@ async function fetchStaleCache(topic: string): Promise<NewsArticle[]> {
   }
 }
 
-// Multi-source news fetcher with fallback strategy
+// Multi-source news fetcher with editorial ranking
 export async function fetchNewsForTopic(
   topic: string,
   options?: { useCache?: boolean; writeCache?: boolean }
@@ -274,97 +294,98 @@ export async function fetchNewsForTopic(
       }
     }
 
-    // Strategy 1: Try Currents API first (primary source)
-    try {
-      console.log(`[Multi-Source] Trying Currents API for "${topic}"...`);
-      const startTime = Date.now();
-      const articles = await fetchNewsForTopicFromCurrents(topic);
-      const fetchDuration = Date.now() - startTime;
+    const startTime = Date.now();
+    let allRawArticles: NewsArticle[] = [];
 
-      if (articles.length >= MIN_ARTICLES_NEEDED) {
-        console.log(`[Multi-Source] ✅ Currents API success: ${articles.length} articles for "${topic}"`);
-
-        // Score articles for relevance
-        const scoredArticles = scoreArticles(articles, topic);
-        const topArticles = selectTopArticles(scoredArticles, 10);
-
-        // Store scored articles in cache for future use
-        if (writeCache) {
-          await storeArticleCache(topic, topArticles, 'currents', fetchDuration);
-        }
-        console.log(`[Multi-Source] Selected top ${topArticles.length} articles after scoring`);
-        return topArticles;
-      }
-
-      console.log(`[Multi-Source] ⚠️ Currents API returned only ${articles.length} articles, trying fallback...`);
-    } catch (error) {
-      console.error(`[Multi-Source] Currents API failed for "${topic}":`, error);
-    }
-
-    // Strategy 2: Fallback to NewsAPI (secondary source)
+    // Strategy 1: NewsAPI first (primary source)
     try {
       console.log(`[Multi-Source] Trying NewsAPI for "${topic}"...`);
-      const startTime = Date.now();
-      const articles = await fetchNewsForTopicWithTimeWindow(topic, 1); // Last 24 hours only
-      const fetchDuration = Date.now() - startTime;
-
-      if (articles.length >= MIN_ARTICLES_NEEDED) {
-        console.log(`[Multi-Source] ✅ NewsAPI success: ${articles.length} articles for "${topic}"`);
-
-        // Score articles for relevance
-        const scoredArticles = scoreArticles(articles, topic);
-        const topArticles = selectTopArticles(scoredArticles, 10);
-
-        // Store scored articles in cache for future use
-        if (writeCache) {
-          await storeArticleCache(topic, topArticles, 'newsapi', fetchDuration);
-        }
-        console.log(`[Multi-Source] Selected top ${topArticles.length} articles after scoring`);
-        return topArticles;
-      }
+      const newsApiArticles = await fetchNewsForTopicWithTimeWindow(topic, 1);
+      console.log(`[Multi-Source] NewsAPI returned ${newsApiArticles.length} articles for "${topic}"`);
+      allRawArticles.push(...newsApiArticles);
 
       // If not enough from 24h, try 48h
-      if (articles.length < MIN_ARTICLES_NEEDED) {
-        console.log(`[Multi-Source] Only ${articles.length} articles from 24h, trying 48h...`);
-        const startTime48h = Date.now();
+      if (newsApiArticles.length < MIN_ARTICLES_NEEDED) {
+        console.log(`[Multi-Source] Only ${newsApiArticles.length} from 24h, trying 48h...`);
         const articles48h = await fetchNewsForTopicWithTimeWindow(topic, 2);
-        const fetchDuration48h = Date.now() - startTime48h;
-
-        if (articles48h.length >= MIN_ARTICLES_NEEDED) {
-          console.log(`[Multi-Source] ✅ NewsAPI 48h success: ${articles48h.length} articles for "${topic}"`);
-
-          // Score articles for relevance
-          const scoredArticles48h = scoreArticles(articles48h, topic);
-          const topArticles48h = selectTopArticles(scoredArticles48h, 10);
-
-          // Store scored articles in cache for future use
-          if (writeCache) {
-            await storeArticleCache(topic, topArticles48h, 'newsapi-48h', fetchDuration48h);
-          }
-          console.log(`[Multi-Source] Selected top ${topArticles48h.length} articles after scoring`);
-          return topArticles48h;
-        }
+        // Add only new articles from 48h window
+        const existingUrls = new Set(allRawArticles.map((a) => a.url));
+        const newArticles = articles48h.filter((a) => !existingUrls.has(a.url));
+        allRawArticles.push(...newArticles);
       }
-
-      console.log(`[Multi-Source] ⚠️ NewsAPI returned only ${articles.length} articles, trying fallback...`);
     } catch (error) {
       console.error(`[Multi-Source] NewsAPI failed for "${topic}":`, error);
     }
 
-    // Strategy 3: Last resort - use stale cache
-    if (useCache) {
-      console.log(`[Multi-Source] All sources failed, trying stale cache for "${topic}"...`);
-      const staleArticles = await fetchStaleCache(topic);
-
-      if (staleArticles.length > 0) {
-        console.log(`[Multi-Source] ✅ Using stale cache: ${staleArticles.length} articles for "${topic}"`);
-        return staleArticles.slice(0, 10);
+    // Strategy 2: Currents API fallback (or supplement if NewsAPI < MIN_REQUIRED)
+    if (allRawArticles.length < MIN_REQUIRED) {
+      try {
+        console.log(`[Multi-Source] Trying Currents API for "${topic}" (have ${allRawArticles.length} articles)...`);
+        const currentsArticles = await fetchNewsForTopicFromCurrents(topic);
+        console.log(`[Multi-Source] Currents API returned ${currentsArticles.length} articles for "${topic}"`);
+        allRawArticles.push(...currentsArticles);
+      } catch (error) {
+        console.error(`[Multi-Source] Currents API failed for "${topic}":`, error);
       }
     }
 
-    // If all strategies fail, return empty array
-    console.error(`[Multi-Source] ❌ All sources failed for "${topic}", returning empty array`);
-    return [];
+    const fetchDuration = Date.now() - startTime;
+
+    if (allRawArticles.length < MIN_ARTICLES_NEEDED) {
+      console.log(`[Multi-Source] Only ${allRawArticles.length} articles total, trying stale cache...`);
+
+      // Strategy 3: Last resort - use stale cache
+      if (useCache) {
+        const staleArticles = await fetchStaleCache(topic);
+        if (staleArticles.length > 0) {
+          console.log(`[Multi-Source] Using stale cache: ${staleArticles.length} articles for "${topic}"`);
+          return staleArticles.slice(0, 10);
+        }
+      }
+
+      console.error(`[Multi-Source] All sources failed for "${topic}", returning empty array`);
+      return [];
+    }
+
+    // Cross-source dedup, then score merged set, select top 25
+    const dedupedArticles = deduplicateAcrossSources(allRawArticles);
+    const scoredArticles = scoreArticles(dedupedArticles, topic);
+    const top25 = selectTopArticles(scoredArticles, 25);
+
+    console.log(`[Multi-Source] Scored ${scoredArticles.length} articles, selected top ${top25.length} for editorial ranking`);
+
+    // Editorial ranking
+    const editorialResult = await rankArticlesEditorially(top25, topic);
+
+    // Map editorial results back to full ScoredArticle objects, select top 7
+    const editorialUrlOrder = editorialResult.rankedArticles.map((r) => r.url);
+    const articlesByUrl = new Map(top25.map((a) => [a.url, a]));
+    const editoriallyRanked: ScoredArticle[] = [];
+
+    for (const url of editorialUrlOrder) {
+      const article = articlesByUrl.get(url);
+      if (article) {
+        editoriallyRanked.push(article);
+      }
+    }
+
+    // Include any articles not in editorial results (fallback completeness)
+    for (const article of top25) {
+      if (!editorialUrlOrder.includes(article.url)) {
+        editoriallyRanked.push(article);
+      }
+    }
+
+    const finalArticles = editoriallyRanked.slice(0, 7);
+
+    console.log(`[Multi-Source] Final selection: ${finalArticles.length} articles for "${topic}" (editorial fallback: ${editorialResult.fallback})`);
+
+    // Cache final articles
+    if (writeCache) {
+      await storeArticleCache(topic, finalArticles, editorialResult.fallback ? 'multi-source-deterministic' : 'multi-source-editorial', fetchDuration);
+    }
+
+    return finalArticles;
   } catch (error) {
     console.error(`[Multi-Source] Critical error fetching news for topic "${topic}":`, error);
     return [];
