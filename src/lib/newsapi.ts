@@ -350,16 +350,16 @@ export async function fetchNewsForTopic(
     // Cross-source dedup, then score merged set, select top 25
     const dedupedArticles = deduplicateAcrossSources(allRawArticles);
     const scoredArticles = scoreArticles(dedupedArticles, topic);
-    const top25 = selectTopArticles(scoredArticles, 25);
+    const top10 = selectTopArticles(scoredArticles, 10);
 
-    console.log(`[Multi-Source] Scored ${scoredArticles.length} articles, selected top ${top25.length} for editorial ranking`);
+    console.log(`[Multi-Source] Scored ${scoredArticles.length} articles, selected top ${top10.length} for editorial ranking`);
 
     // Editorial ranking
-    const editorialResult = await rankArticlesEditorially(top25, topic);
+    const editorialResult = await rankArticlesEditorially(top10, topic);
 
     // Map editorial results back to full ScoredArticle objects, select top 7
     const editorialUrlOrder = editorialResult.rankedArticles.map((r) => r.url);
-    const articlesByUrl = new Map(top25.map((a) => [a.url, a]));
+    const articlesByUrl = new Map(top10.map((a) => [a.url, a]));
     const editoriallyRanked: ScoredArticle[] = [];
 
     for (const url of editorialUrlOrder) {
@@ -370,7 +370,7 @@ export async function fetchNewsForTopic(
     }
 
     // Include any articles not in editorial results (fallback completeness)
-    for (const article of top25) {
+    for (const article of top10) {
       if (!editorialUrlOrder.includes(article.url)) {
         editoriallyRanked.push(article);
       }

@@ -16,7 +16,7 @@ export interface EditorialRankingResult {
 }
 
 const EDITORIAL_MODEL = 'gpt-4o-mini';
-const EDITORIAL_TIMEOUT_MS = 30000;
+const EDITORIAL_TIMEOUT_MS = 20000;
 
 // Check for cached editorial ranking
 async function checkEditorialCache(topic: string): Promise<EditorialRankingResult | null> {
