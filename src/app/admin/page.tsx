@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Navigation from '@/components/Navigation';
-import { Plus, X, Edit2, Save, ChevronDown, ChevronUp, Users, BookOpen, Trash2, FileText, CheckCircle, XCircle, Clock, Send, AlertTriangle } from 'lucide-react';
+import { Plus, X, Edit2, Save, ChevronDown, ChevronUp, Users, BookOpen, Trash2, FileText, CheckCircle, XCircle, Clock, Send, AlertTriangle, Newspaper, ExternalLink } from 'lucide-react';
 
 interface User {
   id: string;
@@ -42,9 +42,42 @@ interface CronJobLog {
   created_at: string;
 }
 
+interface TopicSummaryData {
+  topic: string;
+  status: 'sent' | 'cached' | 'failed';
+  articleCount: number;
+  summaryCount: number;
+  isEditorial: boolean;
+  fetchDurationMs: number | null;
+  cachedAt: string | null;
+  articles: Array<{
+    title: string;
+    url: string;
+    source: string;
+    publishedAt: string;
+  }>;
+  summaries: Array<{
+    title: string;
+    summary: string;
+    bullets?: string[];
+    url: string;
+    source: string;
+  }>;
+}
+
+interface SummariesResponse {
+  date: string;
+  totalTopics: number;
+  withArticles: number;
+  withSummaries: number;
+  failed: number;
+  topics: TopicSummaryData[];
+  emailsSentToday: number;
+}
+
 export default function AdminPortal() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'users' | 'topics' | 'logs'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'topics' | 'logs' | 'summaries'>('users');
   const [users, setUsers] = useState<User[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [groupedTopics, setGroupedTopics] = useState<Record<string, Topic[]>>({});
@@ -80,6 +113,11 @@ export default function AdminPortal() {
   // Test email state
   const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
 
+  // Summaries state
+  const [summariesData, setSummariesData] = useState<SummariesResponse | null>(null);
+  const [isLoadingSummaries, setIsLoadingSummaries] = useState(false);
+  const [expandedSummaryTopics, setExpandedSummaryTopics] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     checkAuthAndLoadData();
   }, []);
@@ -89,6 +127,8 @@ export default function AdminPortal() {
       loadTopics();
     } else if (activeTab === 'logs' && isAuthorized) {
       loadLogs();
+    } else if (activeTab === 'summaries' && isAuthorized) {
+      loadSummaries();
     }
   }, [activeTab, isAuthorized]);
 
@@ -124,6 +164,38 @@ export default function AdminPortal() {
     } finally {
       setIsLoadingLogs(false);
     }
+  };
+
+  const loadSummaries = async () => {
+    setIsLoadingSummaries(true);
+    setError('');
+    try {
+      const response = await fetch('/api/admin/summaries', {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load summaries');
+      }
+
+      const data = await response.json();
+      setSummariesData(data);
+    } catch (error) {
+      console.error('Error loading summaries:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load summaries');
+    } finally {
+      setIsLoadingSummaries(false);
+    }
+  };
+
+  const toggleSummaryTopic = (topic: string) => {
+    const newExpanded = new Set(expandedSummaryTopics);
+    if (newExpanded.has(topic)) {
+      newExpanded.delete(topic);
+    } else {
+      newExpanded.add(topic);
+    }
+    setExpandedSummaryTopics(newExpanded);
   };
 
   const handleForceSendEmails = async () => {
@@ -572,6 +644,17 @@ export default function AdminPortal() {
             <FileText className="w-4 h-4" />
             <span>Logs</span>
           </button>
+          <button
+            onClick={() => setActiveTab('summaries')}
+            className={`px-6 py-3 font-medium transition-colors flex items-center space-x-2 ${
+              activeTab === 'summaries'
+                ? 'text-[#FFA500] border-b-2 border-[#FFA500]'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <Newspaper className="w-4 h-4" />
+            <span>Summaries</span>
+          </button>
         </div>
 
         {/* Error Message */}
@@ -917,6 +1000,191 @@ export default function AdminPortal() {
                   </tbody>
                 </table>
               </div>
+            )}
+          </div>
+        )}
+
+        {/* Summaries Tab */}
+        {activeTab === 'summaries' && (
+          <div className="bg-[#1a1a1a] border border-[#FFA500]/20 rounded-lg p-6">
+            <div className="mb-6">
+              <h2 className="text-xl font-medium text-white mb-2">Today&apos;s Summaries</h2>
+              <p className="text-sm text-gray-400">
+                Overview of all topic summaries generated today ({summariesData?.date || 'loading...'})
+              </p>
+            </div>
+
+            {isLoadingSummaries ? (
+              <div className="text-center py-12">
+                <div className="w-8 h-8 border-2 border-[#FFA500] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                <p className="text-gray-400">Loading summaries...</p>
+              </div>
+            ) : !summariesData ? (
+              <div className="text-center py-12">
+                <Newspaper className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                <p className="text-gray-400">No data available</p>
+              </div>
+            ) : (
+              <>
+                {/* Stats */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+                  <div className="bg-[#2a2a2a] border border-[#FFA500]/20 p-4 rounded-lg">
+                    <p className="text-xs text-gray-400 mb-1">Total Topics</p>
+                    <p className="text-2xl font-medium text-white">{summariesData.totalTopics}</p>
+                  </div>
+                  <div className="bg-[#2a2a2a] border border-[#FFA500]/20 p-4 rounded-lg">
+                    <p className="text-xs text-gray-400 mb-1">With Articles</p>
+                    <p className="text-2xl font-medium text-white">{summariesData.withArticles}</p>
+                  </div>
+                  <div className="bg-[#2a2a2a] border border-[#FFA500]/20 p-4 rounded-lg">
+                    <p className="text-xs text-gray-400 mb-1">Summaries Sent</p>
+                    <p className="text-2xl font-medium text-white">{summariesData.withSummaries}</p>
+                  </div>
+                  <div className="bg-[#2a2a2a] border border-[#FFA500]/20 p-4 rounded-lg">
+                    <p className="text-xs text-gray-400 mb-1">Failed</p>
+                    <p className={`text-2xl font-medium ${summariesData.failed > 0 ? 'text-red-400' : 'text-white'}`}>
+                      {summariesData.failed}
+                    </p>
+                  </div>
+                  <div className="bg-[#2a2a2a] border border-[#FFA500]/20 p-4 rounded-lg">
+                    <p className="text-xs text-gray-400 mb-1">Emails Sent</p>
+                    <p className="text-2xl font-medium text-white">{summariesData.emailsSentToday}</p>
+                  </div>
+                </div>
+
+                {/* Topic List */}
+                <div className="space-y-2">
+                  {summariesData.topics.map((topicData) => {
+                    const isExpanded = expandedSummaryTopics.has(topicData.topic);
+                    return (
+                      <div key={topicData.topic} className="border border-[#FFA500]/10 rounded-lg overflow-hidden">
+                        <button
+                          onClick={() => toggleSummaryTopic(topicData.topic)}
+                          className="w-full px-4 py-3 flex items-center justify-between hover:bg-[#2a2a2a] transition-colors"
+                        >
+                          <div className="flex items-center space-x-3">
+                            {topicData.status === 'sent' ? (
+                              <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />
+                            ) : topicData.status === 'cached' ? (
+                              <Clock className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                            ) : (
+                              <XCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                            )}
+                            <span className="text-sm font-medium text-white">{topicData.topic}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              topicData.status === 'sent'
+                                ? 'bg-green-900/30 text-green-400 border border-green-500/30'
+                                : topicData.status === 'cached'
+                                ? 'bg-yellow-900/30 text-yellow-400 border border-yellow-500/30'
+                                : 'bg-red-900/30 text-red-400 border border-red-500/30'
+                            }`}>
+                              {topicData.status === 'sent' ? 'Sent' : topicData.status === 'cached' ? 'Cached (not yet sent)' : 'No articles'}
+                            </span>
+                            {topicData.isEditorial && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-[#FFA500]/10 text-[#FFA500] border border-[#FFA500]/30">
+                                Editorial
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-4">
+                            <span className="text-xs text-gray-400">
+                              {topicData.articleCount} articles, {topicData.summaryCount} summaries
+                            </span>
+                            {isExpanded ? (
+                              <ChevronUp className="w-4 h-4 text-gray-400" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-gray-400" />
+                            )}
+                          </div>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="px-4 pb-4 bg-[#2a2a2a]/50">
+                            {topicData.fetchDurationMs && (
+                              <p className="text-xs text-gray-500 mb-3">
+                                Fetched in {(topicData.fetchDurationMs / 1000).toFixed(1)}s
+                                {topicData.cachedAt && ` at ${new Date(topicData.cachedAt).toLocaleTimeString()}`}
+                              </p>
+                            )}
+
+                            {/* Summaries */}
+                            {topicData.summaries.length > 0 && (
+                              <div className="mb-4">
+                                <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+                                  Summaries ({topicData.summaries.length})
+                                </h4>
+                                <div className="space-y-3">
+                                  {topicData.summaries.map((summary, idx) => (
+                                    <div key={idx} className="p-3 bg-[#1a1a1a] border border-[#FFA500]/10 rounded">
+                                      <div className="flex items-start justify-between mb-1">
+                                        <h5 className="text-sm font-medium text-white flex-1">{summary.title}</h5>
+                                        <a
+                                          href={summary.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-gray-400 hover:text-[#FFA500] ml-2 flex-shrink-0"
+                                        >
+                                          <ExternalLink className="w-3 h-3" />
+                                        </a>
+                                      </div>
+                                      <p className="text-xs text-gray-500 mb-2">{summary.source}</p>
+                                      {summary.bullets && summary.bullets.length > 0 ? (
+                                        <ul className="space-y-1">
+                                          {summary.bullets.map((bullet, bIdx) => (
+                                            <li key={bIdx} className="text-xs text-gray-300 flex">
+                                              <span className="text-[#FFA500] mr-2 flex-shrink-0">&bull;</span>
+                                              <span>{bullet}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      ) : (
+                                        <p className="text-xs text-gray-300">{summary.summary}</p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Articles (show if no summaries, or as fallback) */}
+                            {topicData.summaries.length === 0 && topicData.articles.length > 0 && (
+                              <div>
+                                <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+                                  Cached Articles ({topicData.articleCount})
+                                </h4>
+                                <div className="space-y-2">
+                                  {topicData.articles.map((article, idx) => (
+                                    <div key={idx} className="flex items-start justify-between p-2 bg-[#1a1a1a] border border-[#FFA500]/10 rounded">
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm text-white truncate">{article.title}</p>
+                                        <p className="text-xs text-gray-500">{article.source}</p>
+                                      </div>
+                                      <a
+                                        href={article.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-gray-400 hover:text-[#FFA500] ml-2 flex-shrink-0"
+                                      >
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {topicData.articles.length === 0 && topicData.summaries.length === 0 && (
+                              <p className="text-sm text-red-400 py-2">
+                                No articles were fetched for this topic today. Check if the news APIs returned results.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
         )}

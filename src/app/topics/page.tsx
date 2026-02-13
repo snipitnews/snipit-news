@@ -15,6 +15,7 @@ interface User {
   id: string;
   email: string;
   subscription_tier: 'free' | 'paid';
+  role?: 'user' | 'admin';
 }
 
 interface Topic {
@@ -91,7 +92,7 @@ export default function TopicsPage() {
   const addTopic = async (subtopic: string) => {
     if (!user) return;
 
-    const maxTopics = user.subscription_tier === 'paid' ? 12 : 3;
+    const maxTopics = user.role === 'admin' ? 10 : user.subscription_tier === 'paid' ? 12 : 3;
 
     if (topics.length >= maxTopics) {
       setError(
@@ -238,7 +239,7 @@ export default function TopicsPage() {
     );
   }
 
-  const maxTopics = user?.subscription_tier === 'paid' ? 12 : 3;
+  const maxTopics = user?.role === 'admin' ? 10 : user?.subscription_tier === 'paid' ? 12 : 3;
   const canAddMore = topics.length < maxTopics;
   const remainingTopics = maxTopics - topics.length;
 

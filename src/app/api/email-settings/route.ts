@@ -3,10 +3,24 @@ import { createServerClient } from '@supabase/ssr';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { cookies } from 'next/headers';
 
+const VALID_TIMEZONES = [
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+];
+
+const TIMEZONE_OFFSETS: Record<string, string> = {
+  'America/New_York': '-05:00',
+  'America/Chicago': '-06:00',
+  'America/Denver': '-07:00',
+  'America/Los_Angeles': '-08:00',
+};
+
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    
+
     // Create a server client with cookie handling
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -67,8 +81,7 @@ export async function GET(request: NextRequest) {
         .from('user_email_settings')
         .insert({
           user_id: user.id,
-          // Delivery time is fixed globally to 6:30 AM EST for all users
-          delivery_time: '06:30:00-05:00',
+          delivery_time: '06:45:00-05:00',
           timezone: 'America/New_York',
           paused: false,
         } as never)
@@ -101,7 +114,7 @@ export async function GET(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    
+
     // Create a server client with cookie handling
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -128,24 +141,34 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { paused } = body;
+    const { paused, timezone } = body;
 
-    // Update or insert settings
+    // Build update payload — only include fields that were provided
+    const updatePayload: Record<string, unknown> = {
+      user_id: user.id,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (paused !== undefined) {
+      updatePayload.paused = paused;
+    }
+
+    if (timezone !== undefined) {
+      if (!VALID_TIMEZONES.includes(timezone)) {
+        return NextResponse.json(
+          { error: 'Invalid timezone. Must be one of: ' + VALID_TIMEZONES.join(', ') },
+          { status: 400 }
+        );
+      }
+      updatePayload.timezone = timezone;
+      const utcOffset = TIMEZONE_OFFSETS[timezone] || '-05:00';
+      updatePayload.delivery_time = `06:45:00${utcOffset}`;
+    }
+
     const { data, error } = await getSupabaseAdmin()
       .from('user_email_settings')
-      .upsert(
-        {
-          user_id: user.id,
-          // Delivery time is fixed globally to 6:30 AM EST for all users
-          delivery_time: '06:30:00-05:00',
-          timezone: 'America/New_York',
-          paused: paused !== undefined ? paused : false,
-          updated_at: new Date().toISOString(),
-        } as never,
-        {
-          onConflict: 'user_id',
-        }
-      )
+      .update(updatePayload as never)
+      .eq('user_id', user.id)
       .select()
       .single();
 

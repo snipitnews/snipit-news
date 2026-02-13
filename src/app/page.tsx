@@ -26,6 +26,7 @@ interface User {
   id: string;
   email: string;
   subscription_tier: 'free' | 'paid';
+  role?: 'user' | 'admin';
 }
 
 interface Topic {
@@ -210,7 +211,7 @@ export default function LandingPage() {
     e.preventDefault();
     if (!newTopic.trim() || !user) return;
 
-    const maxTopics = user.subscription_tier === 'paid' ? 12 : 3;
+    const maxTopics = user.role === 'admin' ? 10 : user.subscription_tier === 'paid' ? 12 : 3;
 
     if (topics.length >= maxTopics) {
       setError(
@@ -329,7 +330,7 @@ export default function LandingPage() {
     );
   }
 
-  const maxTopics = user?.subscription_tier === 'paid' ? 12 : 3;
+  const maxTopics = user?.role === 'admin' ? 10 : user?.subscription_tier === 'paid' ? 12 : 3;
   const canAddMore = user ? topics.length < maxTopics : true;
   const remainingTopics = user ? maxTopics - topics.length : 0;
   const isExistingUser = user !== null;
@@ -483,7 +484,7 @@ export default function LandingPage() {
                 className="mt-16 md:mt-24 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto"
               >
                 {[
-                  { value: '6:30 AM EST', label: 'Daily Delivery' },
+                  { value: '6:45 AM', label: 'Daily Delivery' },
                   { value: '3', label: 'Topics Free' },
                   { value: '60s', label: 'Read Time' },
                   { value: 'AI', label: 'Powered' },
@@ -600,7 +601,7 @@ export default function LandingPage() {
                 Get your digest
               </h3>
               <p className="text-gray-400 leading-relaxed">
-                Receive your personalized news digest every morning at 6:30 AM EST.
+                Receive your personalized news digest every morning at 6:45 AM.
               </p>
             </div>
           </div>
