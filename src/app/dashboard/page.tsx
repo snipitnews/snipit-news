@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Plus, X, Crown, Clock, Pause, Play, Mail, Check } from 'lucide-react';
+import { Plus, X, Crown, Clock, Pause, Play, Mail, Check, ChevronDown } from 'lucide-react';
 import Navigation from '@/components/Navigation';
 import TopicSelector from '@/components/TopicSelector';
 
@@ -41,6 +41,13 @@ interface EmailArchive {
   content: unknown;
 }
 
+const TIMEZONE_OPTIONS = [
+  { value: 'America/New_York', label: 'EST (Eastern)' },
+  { value: 'America/Chicago', label: 'CST (Central)' },
+  { value: 'America/Denver', label: 'MST (Mountain)' },
+  { value: 'America/Los_Angeles', label: 'PST (Pacific)' },
+] as const;
+
 export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -51,6 +58,8 @@ export default function Dashboard() {
     null
   );
   const [isPaused, setIsPaused] = useState(false);
+  const [selectedTimezone, setSelectedTimezone] = useState('America/New_York');
+  const [isSavingTimezone, setIsSavingTimezone] = useState(false);
   const [archive, setArchive] = useState<EmailArchive[]>([]);
   const [availableTopics, setAvailableTopics] = useState<MainTopic[]>([]);
   const [activeTab, setActiveTab] = useState<'topics' | 'settings' | 'archive'>(
@@ -117,6 +126,7 @@ export default function Dashboard() {
         if (settings) {
           setEmailSettings(settings);
           setIsPaused(settings.paused || false);
+          setSelectedTimezone(settings.timezone || 'America/New_York');
         }
       }
 
@@ -147,7 +157,7 @@ export default function Dashboard() {
   const addTopic = async (subtopic: string) => {
     if (!user) return;
 
-    const maxTopics = user.subscription_tier === 'paid' ? 12 : 3;
+    const maxTopics = user.role === 'admin' ? 10 : user.subscription_tier === 'paid' ? 12 : 3;
     
     if (topics.length >= maxTopics) {
       alert(
@@ -216,7 +226,11 @@ export default function Dashboard() {
     }
   };
 
-  const updateEmailSettings = async () => {
+  const updateTimezone = async (newTimezone: string) => {
+    const previousTimezone = selectedTimezone;
+    setSelectedTimezone(newTimezone);
+    setIsSavingTimezone(true);
+
     try {
       const response = await fetch('/api/email-settings', {
         method: 'PUT',
@@ -225,22 +239,24 @@ export default function Dashboard() {
         },
         credentials: 'include',
         body: JSON.stringify({
-          // Delivery time is fixed globally to 6:30 AM EST
-          paused: isPaused,
+          timezone: newTimezone,
         }),
       });
 
       if (response.ok) {
         const { settings } = await response.json();
         setEmailSettings(settings);
-        alert('Settings updated successfully!');
       } else {
+        setSelectedTimezone(previousTimezone);
         const { error } = await response.json();
-        alert('Error updating settings: ' + error);
+        alert('Error updating timezone: ' + error);
       }
     } catch (error) {
-      console.error('Error updating settings:', error);
-      alert('Error updating settings');
+      setSelectedTimezone(previousTimezone);
+      console.error('Error updating timezone:', error);
+      alert('Error updating timezone');
+    } finally {
+      setIsSavingTimezone(false);
     }
   };
 
@@ -256,7 +272,6 @@ export default function Dashboard() {
         },
         credentials: 'include',
         body: JSON.stringify({
-          // Delivery time is fixed globally to 6:30 AM EST
           paused: newPausedState,
         }),
       });
@@ -370,13 +385,12 @@ export default function Dashboard() {
     );
   }
 
-  const maxTopics = user?.subscription_tier === 'paid' ? 12 : 3;
+  const maxTopics = user?.role === 'admin' ? 10 : user?.subscription_tier === 'paid' ? 12 : 3;
   const canAddMore = topics.length < maxTopics;
 
   // Format delivery time for display
   const formatDeliveryTime = () => {
-    // Delivery time is fixed globally to 6:30 AM EST for all users
-    return '6:30 AM EST';
+    return '6:45 AM';
   };
 
   return (
@@ -580,14 +594,38 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              {/* Delivery Time Info */}
+              {/* Delivery Time & Timezone */}
               <div className="p-6 bg-[#1a1a1a] border border-[#FFA500]/20 mb-6">
                 <h3 className="font-medium text-white mb-2">
                   Delivery Time
                 </h3>
-                <p className="text-sm text-gray-400">
-                  Your daily digest is sent at <strong className="text-white">6:30 AM EST</strong> every day. This time is fixed and cannot be changed.
+                <p className="text-sm text-gray-400 mb-4">
+                  Your daily digest is sent at <strong className="text-white">6:45 AM</strong> in your selected timezone.
                 </p>
+                <div className="flex items-center gap-3">
+                  <label htmlFor="timezone-select" className="text-sm text-gray-400">
+                    Timezone
+                  </label>
+                  <div className="relative">
+                    <select
+                      id="timezone-select"
+                      value={selectedTimezone}
+                      onChange={(e) => updateTimezone(e.target.value)}
+                      disabled={isSavingTimezone}
+                      className="appearance-none bg-[#2a2a2a] border border-[#FFA500]/30 text-white text-sm px-4 py-2 pr-9 focus:outline-none focus:border-[#FFA500] transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      {TIMEZONE_OPTIONS.map((tz) => (
+                        <option key={tz.value} value={tz.value}>
+                          {tz.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  </div>
+                  {isSavingTimezone && (
+                    <div className="w-4 h-4 border-2 border-[#FFA500]/30 border-t-[#FFA500] rounded-full animate-spin" />
+                  )}
+                </div>
               </div>
 
 

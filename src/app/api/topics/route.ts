@@ -57,9 +57,9 @@ export async function POST(request: NextRequest) {
     // Get user's subscription tier
     const { data: user, error: userError } = await getSupabaseAdmin()
       .from('users')
-      .select('subscription_tier')
+      .select('subscription_tier, role')
       .eq('id', userId)
-      .single<{ subscription_tier: string }>();
+      .single<{ subscription_tier: string; role?: string }>();
 
     if (userError) {
       const errorMessage =
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    const maxTopics = user.subscription_tier === 'paid' ? 12 : 3;
+    const maxTopics = user.role === 'admin' ? 10 : user.subscription_tier === 'paid' ? 12 : 3;
 
     if (currentTopics.length >= maxTopics) {
       return NextResponse.json(

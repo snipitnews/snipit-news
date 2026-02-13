@@ -47,6 +47,39 @@ const EMAIL_RATE_LIMIT_DELAY_MS = 550;
 // Process summarization in parallel batches to avoid overwhelming OpenAI
 const SUMMARIZATION_CONCURRENCY = 10;
 
+// US timezone groups for digest delivery at 6:45 AM local time
+const US_TIMEZONES = [
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+] as const;
+
+// Determine which US timezones currently have local time around 6:45 AM.
+// Uses a window (6:43-6:50) instead of exact match to tolerate Vercel cron jitter.
+function getMatchingTimezones(): string[] {
+  const now = new Date();
+  const matching: string[] = [];
+
+  for (const tz of US_TIMEZONES) {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: 'numeric',
+      minute: 'numeric',
+      hourCycle: 'h23',
+    });
+    const parts = formatter.formatToParts(now);
+    const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '-1');
+    const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '-1');
+
+    if (hour === 6 && minute >= 43 && minute <= 50) {
+      matching.push(tz);
+    }
+  }
+
+  return matching;
+}
+
 // Utility function to wrap promises with a timeout
 async function withTimeout<T>(
   promise: Promise<T>,
@@ -302,8 +335,21 @@ export async function GET(request: NextRequest) {
   try {
     console.log('[Cron] Starting daily digest process...');
 
-    // Get all users with topics and their email settings
-    const { data: users, error: usersError } = (await supabase
+    // Determine which US timezones currently have 6:45 AM local time
+    const matchingTimezones = getMatchingTimezones();
+
+    if (matchingTimezones.length === 0) {
+      console.log('[Cron] No US timezone currently at 6:45 AM, skipping');
+      return NextResponse.json({
+        message: 'No timezone match at current time',
+        executionTimeMs: Date.now() - startTime,
+      });
+    }
+
+    console.log(`[Cron] Timezones at 6:45 AM: ${matchingTimezones.join(', ')}`);
+
+    // Get users whose timezone matches, with topics and email settings
+    const query = supabase
       .from('users')
       .select(
         `
@@ -320,7 +366,12 @@ export async function GET(request: NextRequest) {
         )
       `
       )
-      .not('user_topics', 'is', null)) as {
+      .not('user_topics', 'is', null);
+
+    // Filter by matching timezones via the user_email_settings relation
+    // We fetch all users with topics, then filter by timezone in-memory
+    // since Supabase doesn't support filtering on nested relation fields directly
+    const { data: allUsers, error: usersError } = (await query) as {
       data: UserWithRelations[] | null;
       error: unknown;
     };
@@ -333,12 +384,27 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (!users || users.length === 0) {
+    if (!allUsers || allUsers.length === 0) {
       console.log('[Cron] No users with topics found');
       return NextResponse.json({ message: 'No users to process' });
     }
 
-    console.log(`[Cron] Found ${users.length} users to process`);
+    // Filter to users whose timezone matches
+    const users = allUsers.filter(user => {
+      const tz = user.user_email_settings?.[0]?.timezone || 'America/New_York';
+      return matchingTimezones.includes(tz);
+    });
+
+    if (users.length === 0) {
+      console.log(`[Cron] No users in matching timezones (${matchingTimezones.join(', ')})`);
+      return NextResponse.json({
+        message: 'No users in matching timezones',
+        matchingTimezones,
+        executionTimeMs: Date.now() - startTime,
+      });
+    }
+
+    console.log(`[Cron] Found ${users.length} users in matching timezones (of ${allUsers.length} total)`);
 
     // Filter to active users (not paused, have topics)
     const activeUsers = users.filter(user => {
