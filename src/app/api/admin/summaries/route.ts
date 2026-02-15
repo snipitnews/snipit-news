@@ -48,7 +48,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const dateParam = request.nextUrl.searchParams.get('date');
+    const today = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : new Date().toISOString().split('T')[0];
 
     // Get all unique topics that users are subscribed to
     const { data: userTopics } = await adminClient
