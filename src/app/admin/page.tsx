@@ -117,6 +117,7 @@ export default function AdminPortal() {
   const [summariesData, setSummariesData] = useState<SummariesResponse | null>(null);
   const [isLoadingSummaries, setIsLoadingSummaries] = useState(false);
   const [expandedSummaryTopics, setExpandedSummaryTopics] = useState<Set<string>>(new Set());
+  const [summariesDate, setSummariesDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     checkAuthAndLoadData();
@@ -166,11 +167,12 @@ export default function AdminPortal() {
     }
   };
 
-  const loadSummaries = async () => {
+  const loadSummaries = async (date?: string) => {
     setIsLoadingSummaries(true);
     setError('');
     try {
-      const response = await fetch('/api/admin/summaries', {
+      const targetDate = date || summariesDate;
+      const response = await fetch(`/api/admin/summaries?date=${targetDate}`, {
         credentials: 'include',
       });
 
@@ -603,17 +605,17 @@ export default function AdminPortal() {
   return (
     <div className="min-h-screen bg-[#1a1a1a]">
       <Navigation />
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         <div className="mb-8">
           <h1 className="text-2xl font-medium text-white">Admin Portal</h1>
           <p className="text-sm text-gray-400 mt-1">Manage users and topics</p>
         </div>
 
         {/* Tabs */}
-        <div className="flex space-x-1 mb-8 border-b border-[#FFA500]/20">
+        <div className="flex space-x-1 mb-8 border-b border-[#FFA500]/20 overflow-x-auto">
           <button
             onClick={() => setActiveTab('users')}
-            className={`px-6 py-3 font-medium transition-colors flex items-center space-x-2 ${
+            className={`px-3 sm:px-6 py-3 font-medium transition-colors flex items-center space-x-2 whitespace-nowrap ${
               activeTab === 'users'
                 ? 'text-[#FFA500] border-b-2 border-[#FFA500]'
                 : 'text-gray-400 hover:text-white'
@@ -624,7 +626,7 @@ export default function AdminPortal() {
           </button>
           <button
             onClick={() => setActiveTab('topics')}
-            className={`px-6 py-3 font-medium transition-colors flex items-center space-x-2 ${
+            className={`px-3 sm:px-6 py-3 font-medium transition-colors flex items-center space-x-2 whitespace-nowrap ${
               activeTab === 'topics'
                 ? 'text-[#FFA500] border-b-2 border-[#FFA500]'
                 : 'text-gray-400 hover:text-white'
@@ -635,7 +637,7 @@ export default function AdminPortal() {
           </button>
           <button
             onClick={() => setActiveTab('logs')}
-            className={`px-6 py-3 font-medium transition-colors flex items-center space-x-2 ${
+            className={`px-3 sm:px-6 py-3 font-medium transition-colors flex items-center space-x-2 whitespace-nowrap ${
               activeTab === 'logs'
                 ? 'text-[#FFA500] border-b-2 border-[#FFA500]'
                 : 'text-gray-400 hover:text-white'
@@ -646,7 +648,7 @@ export default function AdminPortal() {
           </button>
           <button
             onClick={() => setActiveTab('summaries')}
-            className={`px-6 py-3 font-medium transition-colors flex items-center space-x-2 ${
+            className={`px-3 sm:px-6 py-3 font-medium transition-colors flex items-center space-x-2 whitespace-nowrap ${
               activeTab === 'summaries'
                 ? 'text-[#FFA500] border-b-2 border-[#FFA500]'
                 : 'text-gray-400 hover:text-white'
@@ -1006,11 +1008,35 @@ export default function AdminPortal() {
 
         {/* Summaries Tab */}
         {activeTab === 'summaries' && (
-          <div className="bg-[#1a1a1a] border border-[#FFA500]/20 rounded-lg p-6">
+          <div className="bg-[#1a1a1a] border border-[#FFA500]/20 rounded-lg p-4 sm:p-6">
             <div className="mb-6">
-              <h2 className="text-xl font-medium text-white mb-2">Today&apos;s Summaries</h2>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
+                <h2 className="text-xl font-medium text-white">Summaries</h2>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={summariesDate}
+                    max={new Date().toISOString().split('T')[0]}
+                    onChange={(e) => {
+                      setSummariesDate(e.target.value);
+                      loadSummaries(e.target.value);
+                    }}
+                    className="bg-[#2a2a2a] border border-[#FFA500]/30 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-[#FFA500] [color-scheme:dark]"
+                  />
+                  <button
+                    onClick={() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      setSummariesDate(today);
+                      loadSummaries(today);
+                    }}
+                    className="text-xs px-3 py-1.5 bg-[#2a2a2a] border border-[#FFA500]/30 text-gray-300 rounded-lg hover:text-white hover:border-[#FFA500] transition-colors"
+                  >
+                    Today
+                  </button>
+                </div>
+              </div>
               <p className="text-sm text-gray-400">
-                Overview of all topic summaries generated today ({summariesData?.date || 'loading...'})
+                Overview of all topic summaries for {summariesData?.date || summariesDate}
               </p>
             </div>
 
@@ -1027,7 +1053,7 @@ export default function AdminPortal() {
             ) : (
               <>
                 {/* Stats */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4 mb-8">
                   <div className="bg-[#2a2a2a] border border-[#FFA500]/20 p-4 rounded-lg">
                     <p className="text-xs text-gray-400 mb-1">Total Topics</p>
                     <p className="text-2xl font-medium text-white">{summariesData.totalTopics}</p>
@@ -1060,17 +1086,50 @@ export default function AdminPortal() {
                       <div key={topicData.topic} className="border border-[#FFA500]/10 rounded-lg overflow-hidden">
                         <button
                           onClick={() => toggleSummaryTopic(topicData.topic)}
-                          className="w-full px-4 py-3 flex items-center justify-between hover:bg-[#2a2a2a] transition-colors"
+                          className="w-full px-3 sm:px-4 py-3 hover:bg-[#2a2a2a] transition-colors text-left"
                         >
-                          <div className="flex items-center space-x-3">
-                            {topicData.status === 'sent' ? (
-                              <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />
-                            ) : topicData.status === 'cached' ? (
-                              <Clock className="w-4 h-4 text-yellow-400 flex-shrink-0" />
-                            ) : (
-                              <XCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                            )}
-                            <span className="text-sm font-medium text-white">{topicData.topic}</span>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              {topicData.status === 'sent' ? (
+                                <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />
+                              ) : topicData.status === 'cached' ? (
+                                <Clock className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                              ) : (
+                                <XCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                              )}
+                              <span className="text-sm font-medium text-white truncate">{topicData.topic}</span>
+                              <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
+                                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                  topicData.status === 'sent'
+                                    ? 'bg-green-900/30 text-green-400 border border-green-500/30'
+                                    : topicData.status === 'cached'
+                                    ? 'bg-yellow-900/30 text-yellow-400 border border-yellow-500/30'
+                                    : 'bg-red-900/30 text-red-400 border border-red-500/30'
+                                }`}>
+                                  {topicData.status === 'sent' ? 'Sent' : topicData.status === 'cached' ? 'Cached' : 'No articles'}
+                                </span>
+                                {topicData.isEditorial && (
+                                  <span className="text-xs px-2 py-0.5 rounded-full bg-[#FFA500]/10 text-[#FFA500] border border-[#FFA500]/30">
+                                    Editorial
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0 ml-2">
+                              <span className="text-xs text-gray-400 hidden sm:inline">
+                                {topicData.articleCount} articles, {topicData.summaryCount} summaries
+                              </span>
+                              <span className="text-xs text-gray-400 sm:hidden">
+                                {topicData.articleCount}/{topicData.summaryCount}
+                              </span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-4 h-4 text-gray-400" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-gray-400" />
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1.5 sm:hidden ml-6">
                             <span className={`text-xs px-2 py-0.5 rounded-full ${
                               topicData.status === 'sent'
                                 ? 'bg-green-900/30 text-green-400 border border-green-500/30'
@@ -1078,7 +1137,7 @@ export default function AdminPortal() {
                                 ? 'bg-yellow-900/30 text-yellow-400 border border-yellow-500/30'
                                 : 'bg-red-900/30 text-red-400 border border-red-500/30'
                             }`}>
-                              {topicData.status === 'sent' ? 'Sent' : topicData.status === 'cached' ? 'Cached (not yet sent)' : 'No articles'}
+                              {topicData.status === 'sent' ? 'Sent' : topicData.status === 'cached' ? 'Cached' : 'No articles'}
                             </span>
                             {topicData.isEditorial && (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-[#FFA500]/10 text-[#FFA500] border border-[#FFA500]/30">
@@ -1086,20 +1145,10 @@ export default function AdminPortal() {
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center space-x-4">
-                            <span className="text-xs text-gray-400">
-                              {topicData.articleCount} articles, {topicData.summaryCount} summaries
-                            </span>
-                            {isExpanded ? (
-                              <ChevronUp className="w-4 h-4 text-gray-400" />
-                            ) : (
-                              <ChevronDown className="w-4 h-4 text-gray-400" />
-                            )}
-                          </div>
                         </button>
 
                         {isExpanded && (
-                          <div className="px-4 pb-4 bg-[#2a2a2a]/50">
+                          <div className="px-3 sm:px-4 pb-4 bg-[#2a2a2a]/50">
                             {topicData.fetchDurationMs && (
                               <p className="text-xs text-gray-500 mb-3">
                                 Fetched in {(topicData.fetchDurationMs / 1000).toFixed(1)}s
